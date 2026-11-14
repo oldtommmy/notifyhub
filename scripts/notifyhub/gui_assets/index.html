@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>notifyhub</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f6fa;
+    --card: rgba(255, 255, 255, .88);
+    --card-solid: #ffffff;
+    --text: #15171c;
+    --muted: #6b7280;
+    --line: rgba(21, 23, 28, .08);
+    --line-strong: rgba(21, 23, 28, .16);
+    --accent: #4f6ef7;
+    --accent-2: #7c5cff;
+    --ok: #178a4c;
+    --warn: #b57314;
+    --danger: #c62f3a;
+    --input: #f7f8fb;
+    --shadow: 0 16px 46px rgba(24, 30, 50, .08);
+    --radius: 20px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0c0e13;
+      --card: rgba(23, 26, 34, .86);
+      --card-solid: #171a22;
+      --text: #eef1f7;
+      --muted: #9aa3b2;
+      --line: rgba(238, 241, 247, .08);
+      --line-strong: rgba(238, 241, 247, .16);
+      --input: #10131a;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .38);
+    }
+  }
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0c0e13;
+    --card: rgba(23, 26, 34, .86);
+    --card-solid: #171a22;
+    --text: #eef1f7;
+    --muted: #9aa3b2;
+    --line: rgba(238, 241, 247, .08);
+    --line-strong: rgba(238, 241, 247, .16);
+    --input: #10131a;
+    --shadow: 0 18px 50px rgba(0, 0, 0, .38);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(1100px 560px at 8% -12%, rgba(79, 110, 247, .14), transparent 62%),
+      radial-gradient(900px 480px at 102% -4%, rgba(124, 92, 255, .12), transparent 58%),
+      var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    transition: background .25s ease, color .25s ease;
+  }
+  .app { max-width: 1080px; margin: 0 auto; padding: 30px 22px 120px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+  .brand { display: flex; align-items: center; gap: 13px; }
+  .mark {
+    width: 46px; height: 46px; border-radius: 15px;
+    display: grid; place-items: center; color: #fff;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 10px 26px rgba(79, 110, 247, .34);
+  }
+  .mark svg { width: 23px; height: 23px; }
+  .brand h1 { margin: 0; font-size: 19px; letter-spacing: -.02em; }
+  .brand p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+  .top-actions { display: flex; align-items: center; gap: 9px; }
+  .icon-btn {
+    width: 36px; height: 36px; border-radius: 11px; border: 1px solid var(--line);
+    background: var(--card); color: var(--muted); cursor: pointer; display: grid; place-items: center;
+    transition: .15s ease;
+  }
+  .icon-btn:hover { color: var(--text); border-color: var(--line-strong); transform: translateY(-1px); }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 382px; gap: 18px; align-items: start; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 20px; box-shadow: var(--shadow); backdrop-filter: blur(14px);
+  }
+  .card + .card { margin-top: 18px; }
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 16px; }
+  .card-head h2 { margin: 0 0 4px; font-size: 15px; letter-spacing: -.01em; }
+  .card-head p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+    padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--input); color: var(--muted); font-size: 11px; font-weight: 700;
+  }
+  .pill-ok { color: var(--ok); background: rgba(23, 138, 76, .11); border-color: rgba(23, 138, 76, .2); }
+  .pill-warn { color: var(--warn); background: rgba(181, 115, 20, .12); border-color: rgba(181, 115, 20, .22); }
+  .pill-danger { color: var(--danger); background: rgba(198, 47, 58, .1); border-color: rgba(198, 47, 58, .2); }
+  .pill-off { color: var(--muted); }
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .span-2 { grid-column: 1 / -1; }
+  .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .field > span { color: var(--muted); font-size: 12px; font-weight: 650; }
+  input, select {
+    width: 100%; border: 1px solid var(--line); background: var(--input); color: var(--text);
+    border-radius: 11px; padding: 10px 12px; font: inherit; font-size: 13px; outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+  input::placeholder { color: var(--muted); opacity: .65; }
+  input:focus, select:focus {
+    border-color: rgba(79, 110, 247, .55); box-shadow: 0 0 0 4px rgba(79, 110, 247, .13); background: var(--card-solid);
+  }
+  .switch-list { display: flex; flex-direction: column; gap: 10px; }
+  .switch-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--input);
+  }
+  .switch-row .label { font-size: 12.5px; font-weight: 650; }
+  .switch { position: relative; width: 38px; height: 22px; flex: 0 0 auto; }
+  .switch input { position: absolute; inset: 0; opacity: 0; cursor: pointer; margin: 0; }
+  .switch i {
+    position: absolute; inset: 0; border-radius: 999px; background: var(--line-strong);
+    transition: .2s ease; pointer-events: none;
+  }
+  .switch i::after {
+    content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .24);
+    transition: .2s ease;
+  }
+  .switch input:checked + i { background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+  .switch input:checked + i::after { transform: translateX(16px); }
+  .quota-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line);
+    border-radius: 12px; background: var(--input);
+  }
+  .quota-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .quota-main .muted { color: var(--muted); font-size: 11.5px; }
+  .quota-main strong { font-size: 13px; font-weight: 750; }
+  .quota-age { color: var(--muted); font-size: 10.5px; }
+  .row-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; }
+  .btn {
+    border: 0; border-radius: 11px; padding: 10px 14px; font: inherit; font-size: 12.5px; font-weight: 750;
+    color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 9px 22px rgba(79, 110, 247, .25); cursor: pointer; transition: .15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); filter: brightness(1.03); }
+  .btn:disabled { opacity: .55; cursor: default; transform: none; }
+  .btn-ghost {
+    background: transparent; color: var(--text); border: 1px solid var(--line-strong);
+    box-shadow: none; font-weight: 650;
+  }
+  .btn-ghost:hover { background: var(--input); }
+  .btn-small { padding: 7px 10px; font-size: 11.5px; }
+  .hint { margin-top: 12px; color: var(--muted); font-size: 11.5px; line-height: 1.7; }
+  .hint code { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--input); padding: 1px 5px; border-radius: 5px; }
+  .empty { padding: 18px; text-align: center; color: var(--muted); font-size: 12px; border: 1px dashed var(--line-strong); border-radius: 12px; }
+  .feishu { border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: var(--card-solid); }
+  .feishu-head { padding: 14px 16px; border-left: 4px solid var(--accent); background: linear-gradient(135deg, rgba(79, 110, 247, .13), transparent); }
+  .feishu-app { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 6px; }
+  .feishu-title { font-size: 14px; font-weight: 800; letter-spacing: -.01em; }
+  .feishu-subtitle { margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 500; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+  .feishu-body { padding: 14px 16px 16px; font-size: 12.5px; line-height: 1.6; }
+  .feishu-meta { white-space: pre-wrap; color: var(--text); }
+  .feishu-fields { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+  .feishu-field { flex: 1 1 100%; min-width: 0; }
+  .feishu-field.short { flex: 1 1 calc(50% - 8px); }
+  .feishu-field strong { display: block; color: var(--muted); font-size: 10.5px; font-weight: 700; letter-spacing: .02em; margin-bottom: 2px; }
+  .feishu-field > div { color: var(--text); font-size: 12.5px; line-height: 1.5; }
+  .feishu-body hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
+  .feishu-msg { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--input); color: var(--text); font-size: 12.5px; line-height: 1.65; overflow-wrap: anywhere; }
+  .feishu-msg .md-heading { font-weight: 800; margin: 6px 0 2px; }
+  .feishu-msg ul { margin: 4px 0 6px; padding-left: 18px; }
+  .feishu-msg li { margin: 2px 0; }
+  .feishu-msg code { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(127, 127, 127, .14); padding: 1px 4px; border-radius: 4px; }
+  .feishu-msg pre { margin: 6px 0; padding: 8px 10px; border-radius: 8px; background: rgba(127, 127, 127, .12); overflow-x: auto; }
+  .feishu-msg pre code { background: transparent; padding: 0; }
+  .feishu-msg a { color: var(--accent); }
+  .feishu-msg strong { font-weight: 800; }
+  .feishu-mention { margin-top: 8px; display: inline-block; padding: 2px 7px; border-radius: 6px; background: rgba(79, 110, 247, .12); color: var(--accent); font-size: 11px; font-weight: 700; }
+  .feishu-foot { padding: 0 16px 14px; color: var(--muted); font-size: 10.5px; }
+  .savebar {
+    position: fixed; right: 22px; bottom: 22px;
+    display: flex; align-items: center; gap: 16px; padding: 9px 12px 9px 18px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: var(--shadow); backdrop-filter: blur(16px); z-index: 20;
+    opacity: 0; transform: translateY(12px); pointer-events: none;
+    transition: opacity .2s ease, transform .2s ease;
+    max-width: calc(100vw - 44px);
+  }
+  .savebar.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .savebar span { color: var(--warn); font-size: 12px; white-space: nowrap; font-weight: 650; }
+  .toast {
+    position: fixed; left: 50%; bottom: 92px; transform: translate(-50%, 12px);
+    opacity: 0; pointer-events: none; z-index: 30; max-width: min(560px, 90vw);
+    padding: 10px 14px; border-radius: 12px; background: #111827; color: #fff;
+    font-size: 12.5px; line-height: 1.5; transition: .2s ease; box-shadow: 0 18px 40px rgba(0, 0, 0, .25);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.error { background: #b4232d; }
+  @media (max-width: 980px) {
+    .grid { grid-template-columns: 1fr; }
+    .col-side { order: -1; }
+  }
+  @media (max-width: 640px) {
+    .app { padding: 18px 14px 130px; }
+    .topbar { align-items: flex-start; }
+    .brand p { display: none; }
+    .field-grid { grid-template-columns: 1fr; }
+    .span-2 { grid-column: auto; }
+    .savebar { left: 14px; right: 14px; max-width: none; justify-content: space-between; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
+          <path d="M10 21h4"></path>
+          <path d="M12 2v1"></path>
+        </svg>
+      </div>
+      <div>
+        <h1>notifyhub</h1>
+        <p>Codex 完成通知</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="icon-btn" id="themeBtn" title="切换主题">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="col-main">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>飞书机器人</h2>
+            <p>应用机器人直接私聊你，不用建群。</p>
+          </div>
+          <span id="channelPill" class="pill pill-off">未配置</span>
+        </div>
+        <div class="field-grid">
+          <label class="field span-2">
+            <span>App ID</span>
+            <input id="appId" type="text" placeholder="cli_..." autocomplete="off" spellcheck="false">
+          </label>
+          <label class="field span-2">
+            <span>App Secret</span>
+            <input id="appSecret" type="password" placeholder="只保存在本机配置里" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>接收人类型</span>
+            <select id="receiveType">
+              <option value="open_id">open_id</option>
+              <option value="email">邮箱</option>
+              <option value="chat_id">chat_id</option>
+              <option value="user_id">user_id</option>
+              <option value="union_id">union_id</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>接收人</span>
+            <input id="receiveId" type="text" placeholder="ou_..." autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+        <div class="row-actions">
+          <button class="btn" id="testBtn">发送测试通知</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>通知内容</h2>
+            <p>只保留最常用的开关。</p>
+          </div>
+        </div>
+        <div class="switch-list">
+          <div class="switch-row"><span class="label">Goal 每轮都通知</span><label class="switch"><input type="checkbox" id="goalRounds"><i></i></label></div>
+          <div class="switch-row"><span class="label">附带最近提问</span><label class="switch"><input type="checkbox" id="recentPrompt"><i></i></label></div>
+          <div class="switch-row"><span class="label">附带最后一条消息</span><label class="switch"><input type="checkbox" id="lastMessage"><i></i></label></div>
+          <div class="switch-row"><span class="label">显示剩余额度</span><label class="switch"><input type="checkbox" id="showQuota"><i></i></label></div>
+        </div>
+        <div class="quota-row">
+          <div class="quota-main">
+            <span class="muted">当前剩余额度</span>
+            <strong id="quotaLine">加载中…</strong>
+            <span class="quota-age" id="quotaAge"></span>
+          </div>
+          <button class="btn btn-ghost btn-small" id="quotaRefresh">刷新</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>Codex 接入</h2>
+            <p>Stop hook 会在每一轮结束时触发。</p>
+          </div>
+          <span id="hooksPill" class="pill pill-off">未安装</span>
+        </div>
+        <div class="row-actions">
+          <button class="btn" id="installBtn">安装 / 更新 hooks</button>
+        </div>
+        <div class="hint" id="hooksHint">安装后在 Codex 里运行 <code>/hooks</code> 信任 notifyhub。</div>
+      </div>
+    </section>
+
+    <aside class="col-side">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>飞书预览</h2>
+            <p>实际发送效果。</p>
+          </div>
+          <select id="previewGoal" style="width:auto;padding:7px 9px;font-size:11.5px">
+            <option value="active">Goal 进行中</option>
+            <option value="complete">Goal 完成</option>
+            <option value="blocked">Goal 受阻</option>
+            <option value="none">普通轮次</option>
+          </select>
+        </div>
+        <div id="feishuPreview"></div>
+      </div>
+    </aside>
+  </main>
+
+  <div class="savebar" id="savebar">
+    <span>有未保存的修改</span>
+    <button class="btn" id="saveBtn">保存</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const $ = (id) => document.getElementById(id);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+const clone = (value) => JSON.parse(JSON.stringify(value));
+
+let state = { config: null, dirty: false, toastTimer: null };
+
+function toast(message, kind = "ok") {
+  const element = $("toast");
+  element.textContent = message;
+  element.className = "toast show" + (kind === "error" ? " error" : "");
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => { element.className = "toast"; }, 3600);
+}
+
+async function api(path, options = {}) {
+  const headers = { "X-Notifyhub-Token": TOKEN, ...(options.headers || {}) };
+  if (options.body) headers["Content-Type"] = "application/json";
+  const response = await fetch(path, { ...options, headers });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+
+function setPill(id, text, kind) {
+  const element = $(id);
+  element.textContent = text;
+  element.className = "pill" + (kind ? ` pill-${kind}` : "");
+}
+
+function updateDirty() {
+  $("savebar").classList.toggle("show", state.dirty);
+}
+
+function markDirty() {
+  state.dirty = true;
+  updateDirty();
+}
+
+function receivePlaceholder() {
+  const placeholders = { open_id: "ou_...", email: "you@company.com", chat_id: "oc_...", user_id: "user_id", union_id: "on_..." };
+  $("receiveId").placeholder = placeholders[$("receiveType").value] || "";
+}
+
+function renderConfig() {
+  const config = state.config;
+  if (!config) return;
+  const app = config.channels?.feishu_app || {};
+  const codex = config.codex || {};
+
+  $("appId").value = app.app_id || "";
+  $("appSecret").value = app.app_secret || "";
+  $("receiveType").value = app.receive_id_type || "open_id";
+  $("receiveId").value = app.receive_id || "";
+  $("goalRounds").checked = codex.notify_goal_rounds !== false;
+  $("recentPrompt").checked = codex.include_recent_prompt !== false;
+  $("lastMessage").checked = codex.include_last_message !== false;
+  $("showQuota").checked = codex.include_remaining_quota !== false;
+
+  state.dirty = false;
+  updateDirty();
+  receivePlaceholder();
+}
+
+function collectConfig() {
+  const config = clone(state.config || {});
+  config.channels = config.channels || {};
+  const appId = $("appId").value.trim();
+  const appSecret = $("appSecret").value.trim();
+  const receiveId = $("receiveId").value.trim();
+
+  config.channels.feishu_app = {
+    ...(config.channels.feishu_app || {}),
+    enabled: Boolean(appId && appSecret && receiveId),
+    app_id: appId,
+    app_secret: appSecret,
+    receive_id_type: $("receiveType").value,
+    receive_id: receiveId,
+    message_type: "card",
+  };
+  config.codex = {
+    ...(config.codex || {}),
+    notify_goal_rounds: $("goalRounds").checked,
+    include_recent_prompt: $("recentPrompt").checked,
+    include_last_message: $("lastMessage").checked,
+    include_remaining_quota: $("showQuota").checked,
+  };
+  return config;
+}
+
+async function persist({ silent = false } = {}) {
+  try {
+    $("saveBtn").disabled = true;
+    const data = await api("/api/config", { method: "POST", body: JSON.stringify({ config: collectConfig() }) });
+    state.config = data.config;
+    state.dirty = false;
+    updateDirty();
+    if (!silent) toast("配置已保存");
+    await Promise.all([loadStatus(), loadQuota()]);
+    await loadPreview();
+    return true;
+  } catch (error) {
+    toast(error.message, "error");
+    return false;
+  } finally {
+    $("saveBtn").disabled = false;
+  }
+}
+
+async function loadConfig() {
+  const data = await api("/api/config");
+  state.config = data.config;
+  renderConfig();
+}
+
+async function loadStatus() {
+  const data = await api("/api/status");
+  const app = data.channels.feishu_app;
+  if (app.configured) setPill("channelPill", "已配置", "ok");
+  else if (app.enabled) setPill("channelPill", "缺少信息", "warn");
+  else setPill("channelPill", "未配置", "off");
+
+  if (data.codex.hooks_installed) setPill("hooksPill", "已安装", "ok");
+  else setPill("hooksPill", "未安装", "off");
+
+  $("hooksHint").innerHTML = '安装后在 Codex 里运行 <code>/hooks</code> 信任 notifyhub。';
+}
+
+async function loadQuota(refresh = false) {
+  const line = $("quotaLine");
+  const age = $("quotaAge");
+  line.textContent = "加载中…";
+  age.textContent = "";
+  try {
+    const data = await api(`/api/quota${refresh ? "?refresh=1" : ""}`);
+    if (!data.ok) {
+      line.textContent = "暂不可用";
+      return;
+    }
+    line.textContent = data.line + (data.stale ? "（缓存）" : "");
+    if (data.age_seconds != null) {
+      const seconds = data.age_seconds;
+      age.textContent = seconds < 60 ? "刚刚更新" : seconds < 3600 ? `${Math.floor(seconds / 60)} 分钟前更新` : `${Math.floor(seconds / 3600)} 小时前更新`;
+    }
+  } catch (_) {
+    line.textContent = "暂不可用";
+  }
+}
+
+async function loadPreview() {
+  try {
+    const goal = $("previewGoal").value;
+    const data = await api(`/api/preview?goal=${encodeURIComponent(goal)}`);
+    renderFeishu(data.card);
+  } catch (error) {
+    $("feishuPreview").innerHTML = `<div class="empty">预览加载失败：${esc(error.message)}</div>`;
+  }
+}
+
+function markdownInline(text) {
+  const codes = [];
+  let value = esc(text);
+  value = value.replace(/`([^`]+)`/g, (_, code) => {
+    codes.push(code);
+    return `\u0000${codes.length - 1}\u0000`;
+  });
+  value = value.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  value = value.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  value = value.replace(/~~([^~]+)~~/g, "<s>$1</s>");
+  value = value.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  value = value.replace(/\u0000(\d+)\u0000/g, (_, index) => `<code>${codes[Number(index)]}</code>`);
+  return value;
+}
+
+function markdownToHtml(text) {
+  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  let html = "";
+  let code = [];
+  let inCode = false;
+  let items = [];
+  const flushItems = () => {
+    if (!items.length) return;
+    html += "<ul>" + items.map((item) => `<li>${markdownInline(item)}</li>`).join("") + "</ul>";
+    items = [];
+  };
+  lines.forEach((line) => {
+    if (line.trim().startsWith("```")) {
+      if (!inCode) {
+        flushItems();
+        inCode = true;
+        code = [];
+      } else {
+        html += `<pre><code>${esc(code.join("\n"))}</code></pre>`;
+        inCode = false;
+      }
+      return;
+    }
+    if (inCode) {
+      code.push(line);
+      return;
+    }
+    const list = line.match(/^\s*[-*]\s+(.*)$/);
+    if (list) {
+      items.push(list[1]);
+      return;
+    }
+    flushItems();
+    if (!line.trim()) {
+      html += "<br>";
+      return;
+    }
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      html += `<div class="md-heading">${markdownInline(heading[2])}</div>`;
+      return;
+    }
+    html += `<div>${markdownInline(line)}</div>`;
+  });
+  flushItems();
+  if (inCode) html += `<pre><code>${esc(code.join("\n"))}</code></pre>`;
+  return html || `<div class="empty">暂无内容</div>`;
+}
+
+function renderFeishu(card) {
+  const root = $("feishuPreview");
+  root.innerHTML = "";
+  const colors = {
+    green: ["#1f9d55", "rgba(31,157,85,.13)"],
+    blue: ["#4f6ef7", "rgba(79,110,247,.13)"],
+    red: ["#d33b45", "rgba(211,59,69,.12)"],
+    orange: ["#c47f17", "rgba(196,127,23,.13)"],
+    grey: ["#6b7280", "rgba(107,114,128,.12)"],
+  };
+  const [accent, tint] = colors[card.header?.template] || colors.blue;
+
+  const wrap = document.createElement("div");
+  wrap.className = "feishu";
+  const head = document.createElement("div");
+  head.className = "feishu-head";
+  head.style.borderLeftColor = accent;
+  head.style.background = `linear-gradient(135deg, ${tint}, transparent)`;
+  const app = document.createElement("div");
+  app.className = "feishu-app";
+  app.textContent = "✦ 飞书 · notifyhub";
+  const title = document.createElement("div");
+  title.className = "feishu-title";
+  const rawTitle = card.header?.title?.content || "";
+  const titleText = rawTitle
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const dot = document.createElement("span");
+  dot.className = "dot";
+  dot.style.background = accent;
+  title.append(dot, document.createTextNode(titleText));
+  head.append(app, title);
+  const subtitle = card.header?.subtitle?.content || "";
+  if (subtitle) {
+    const sub = document.createElement("div");
+    sub.className = "feishu-subtitle";
+    sub.textContent = subtitle;
+    head.append(sub);
+  }
+  wrap.append(head);
+
+  const body = document.createElement("div");
+  body.className = "feishu-body";
+  const blocks = [];
+  let afterHr = false;
+
+  (card.elements || card.body?.elements || []).forEach((element) => {
+    if (!element || typeof element !== "object") return;
+    if (element.tag === "hr") {
+      afterHr = true;
+      blocks.push({ type: "hr" });
+      return;
+    }
+    if (Array.isArray(element.fields)) {
+      blocks.push({ type: "fields", fields: element.fields });
+      return;
+    }
+    let content = "";
+    let tag = "";
+    if (element.tag === "markdown" || element.tag === "lark_md") {
+      content = element.content || "";
+      tag = "markdown";
+    } else if (element.text) {
+      content = element.text.content || "";
+      tag = element.text.tag || "";
+    }
+    if (!content) return;
+    if (content.includes("<at")) {
+      blocks.push({ type: "mention" });
+      return;
+    }
+    if (tag === "markdown" || tag === "lark_md") {
+      blocks.push({ type: afterHr ? "message" : "meta", content });
+    } else if (tag === "plain_text") {
+      blocks.push({ type: "meta", content });
+    }
+  });
+
+  blocks.forEach((block) => {
+    if (block.type === "hr") {
+      body.append(document.createElement("hr"));
+      return;
+    }
+    if (block.type === "fields") {
+      const grid = document.createElement("div");
+      grid.className = "feishu-fields";
+      block.fields.forEach((field) => {
+        const cell = document.createElement("div");
+        cell.className = "feishu-field" + (field.is_short ? " short" : "");
+        cell.innerHTML = markdownToHtml(field.text?.content || "");
+        grid.append(cell);
+      });
+      body.append(grid);
+      return;
+    }
+    if (block.type === "mention") {
+      const chip = document.createElement("div");
+      chip.className = "feishu-mention";
+      chip.textContent = "@所有人";
+      body.append(chip);
+      return;
+    }
+    if (block.type === "meta") {
+      const meta = document.createElement("div");
+      meta.className = "feishu-meta";
+      meta.innerHTML = markdownToHtml(block.content);
+      body.append(meta);
+      return;
+    }
+    if (block.type === "message") {
+      const message = document.createElement("div");
+      message.className = "feishu-msg";
+      message.innerHTML = markdownToHtml(block.content);
+      body.append(message);
+    }
+  });
+  if (!body.childNodes.length) body.innerHTML = `<div class="empty">暂无内容</div>`;
+  wrap.append(body);
+
+  const foot = document.createElement("div");
+  foot.className = "feishu-foot";
+  foot.textContent = "刚刚 · 仅本机预览";
+  wrap.append(foot);
+  root.append(wrap);
+}
+
+async function sendTest() {
+  if (!(await persist({ silent: true }))) return;
+  const button = $("testBtn");
+  button.disabled = true;
+  button.textContent = "发送中…";
+  try {
+    const data = await api("/api/test", { method: "POST", body: "{}" });
+    const failed = (data.results || []).filter((item) => !item[1]);
+    if (data.ok) {
+      toast(failed.length ? `已发送；${failed.map((item) => item[0]).join(", ")} 失败。` : "测试通知已发送。", failed.length ? "error" : "ok");
+    } else {
+      toast(data.error || "发送失败，检查配置。", "error");
+    }
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "发送测试通知";
+  }
+}
+
+async function installHooks() {
+  if (!(await persist({ silent: true }))) return;
+  try {
+    const data = await api("/api/hooks/install", { method: "POST", body: "{}" });
+    toast(`已写入 ${data.path}，去 Codex 运行 /hooks 信任。`);
+    await loadStatus();
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+function applyTheme(mode) {
+  document.documentElement.dataset.theme = mode === "auto" ? "" : mode;
+  localStorage.setItem("notifyhub-theme", mode);
+  $("themeBtn").title = `主题：${mode}`;
+}
+
+function cycleTheme() {
+  const current = localStorage.getItem("notifyhub-theme") || "auto";
+  const order = ["auto", "light", "dark"];
+  applyTheme(order[(order.indexOf(current) + 1) % order.length]);
+}
+
+function bindEvents() {
+  $("saveBtn").addEventListener("click", () => persist());
+  $("testBtn").addEventListener("click", sendTest);
+  $("installBtn").addEventListener("click", installHooks);
+  $("quotaRefresh").addEventListener("click", () => loadQuota(true));
+  $("previewGoal").addEventListener("change", loadPreview);
+  $("themeBtn").addEventListener("click", cycleTheme);
+  $("receiveType").addEventListener("change", receivePlaceholder);
+
+  const main = document.querySelector(".app");
+  const onEdit = (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (!target.matches("input, select")) return;
+    if (target.id === "previewGoal") return;
+    markDirty();
+  };
+  main.addEventListener("input", onEdit);
+  main.addEventListener("change", onEdit);
+
+  window.addEventListener("beforeunload", (event) => {
+    if (!state.dirty) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+}
+
+async function boot() {
+  applyTheme(localStorage.getItem("notifyhub-theme") || "auto");
+  bindEvents();
+  try {
+    await Promise.all([loadConfig(), loadStatus()]);
+    loadPreview();
+    loadQuota().then(loadPreview);
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

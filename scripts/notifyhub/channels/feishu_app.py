@@ -1,0 +1,100 @@
+import json
+import urllib.error
+import urllib.parse
+import urllib.request
+
+from ..render import build_card, render_text
+
+TOKEN_PATH = "/open-apis/auth/v3/tenant_access_token/internal"
+MESSAGE_PATH = "/open-apis/im/v1/messages"
+RECEIVE_ID_TYPES = {"email", "open_id", "user_id", "union_id", "chat_id"}
+
+
+class FeishuAppError(RuntimeError):
+    pass
+
+
+def build_content(notification, config):
+    if config.get("message_type", "card") == "text":
+        return "text", {"text": render_text(notification)}
+    return "interactive", build_card(notification, at_all=config.get("at_all", False))
+
+
+def build_message_payload(notification, config):
+    receive_id_type = config.get("receive_id_type", "email")
+    if receive_id_type not in RECEIVE_ID_TYPES:
+        raise FeishuAppError(f"unsupported receive_id_type: {receive_id_type}")
+    msg_type, content = build_content(notification, config)
+    return {
+        "receive_id": config.get("receive_id", ""),
+        "msg_type": msg_type,
+        "content": json.dumps(content, ensure_ascii=False),
+    }
+
+
+def _post_json(url, payload, headers, timeout):
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json; charset=utf-8", **headers},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", "replace")
+        raise FeishuAppError(f"HTTP {error.code}: {detail[:300]}") from error
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        raise FeishuAppError(f"request failed: {error}") from error
+
+    try:
+        parsed = json.loads(raw)
+    except ValueError as error:
+        raise FeishuAppError(f"invalid response: {raw[:300]}") from error
+
+    code = parsed.get("code", parsed.get("StatusCode", 0))
+    if code not in (0, None):
+        raise FeishuAppError(f"code={code} msg={parsed.get('msg', '')}")
+    return parsed
+
+
+def get_tenant_token(app_id, app_secret, timeout, base_url="https://open.feishu.cn"):
+    if not app_id or not app_secret:
+        raise FeishuAppError("feishu_app.app_id / app_secret is not configured")
+    parsed = _post_json(
+        base_url.rstrip("/") + TOKEN_PATH,
+        {"app_id": app_id, "app_secret": app_secret},
+        {},
+        timeout,
+    )
+    token = parsed.get("tenant_access_token")
+    if not token:
+        raise FeishuAppError("tenant_access_token missing in response")
+    return token
+
+
+def send(notification, config, logger=None):
+    receive_id = config.get("receive_id", "")
+    if not receive_id:
+        raise FeishuAppError("feishu_app.receive_id is not configured")
+
+    timeout = float(config.get("timeout_seconds", 5))
+    base_url = config.get("base_url", "https://open.feishu.cn")
+    token = get_tenant_token(
+        config.get("app_id", ""),
+        config.get("app_secret", ""),
+        timeout,
+        base_url,
+    )
+    receive_id_type = config.get("receive_id_type", "email")
+    url = f"{base_url.rstrip('/')}{MESSAGE_PATH}?receive_id_type={urllib.parse.quote(receive_id_type)}"
+    payload = build_message_payload(notification, config)
+
+    return _post_json(
+        url,
+        payload,
+        {"Authorization": f"Bearer {token}"},
+        timeout,
+    )
