@@ -77,6 +77,10 @@ sh scripts/selftest.sh
 python3 scripts/notifyhub.py doctor
 ```
 
+## UI
+
+界面视觉参考 [LeiBox](https://leibox.pantoria.cn) 的玻璃卡片与 Glass Tab Menu 交互；预览状态切换是一个紧凑的玻璃分段控件。没有直接捆绑 LeiBox 的 WebGL/TS 组件，页面保持零依赖。
+
 完整 agent 操作手册见 [SKILL.md](SKILL.md)；飞书应用配置、完整配置项、排障分别在：
 
 - [references/feishu-setup.md](references/feishu-setup.md)
