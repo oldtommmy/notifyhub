@@ -17,15 +17,38 @@ Codex / DeepSeek Harness 完成通知 · 飞书私聊 · Agent Skill
 - 本地 Web GUI：凭证、四个通知开关、额度、测试发送、DSH 安装、卡片预览
 - 安装 / 合并 `~/.codex/hooks.json`，不修改已有的 `notify` 配置
 
-## 安装
+## 让本地 Agent 安装（推荐）
 
-把仓库克隆到 skill 目录，目录名必须是 `notifyhub`：
+把仓库克隆到 Command Code 的 skill 目录，目录名必须是 `notifyhub`：
 
 ```bash
 git clone https://github.com/oldtommmy/notifyhub.git ~/.commandcode/skills/notifyhub
 ```
 
-或者在项目内使用：
+然后在任意 Command Code 会话里直接发：
+
+```text
+读取 ~/.commandcode/skills/notifyhub/SKILL.md，按里面的流程帮我安装 notifyhub：
+1. 检查 Python / Codex / dsh
+2. 配置飞书应用私聊；需要 App ID / Secret 时再问我，不要打印 Secret
+3. 发一张测试卡片
+4. 安装 Codex Stop hook；如果我使用 DeepSeek Harness 桌面版，安装 desktop profile 插件；如果使用 dsh web，安装 web profile
+5. 最后运行 doctor，并告诉我还需要在 Codex / DSH 里做什么
+```
+
+装好后也可以直接用 `/notifyhub` 调用。其他能读 `SKILL.md` 的 agent：把仓库放到它的 skills 目录，或直接把 `SKILL.md` 路径交给它，让它按流程执行。
+
+> 安装前建议先 review 脚本：它会写 `~/.codex/hooks.json`、读取 Codex 本地数据库和 `history.jsonl`，并 spawn 本地 notifyhub；App Secret 只应通过环境变量或 GUI 提供。
+
+## 手动配置
+
+不想让 agent 代劳的话，克隆后按下面的「快速开始」手动执行：
+
+```bash
+git clone https://github.com/oldtommmy/notifyhub.git ~/.commandcode/skills/notifyhub
+```
+
+项目内使用：
 
 ```bash
 git clone https://github.com/oldtommmy/notifyhub.git .commandcode/skills/notifyhub
