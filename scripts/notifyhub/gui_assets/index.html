@@ -309,7 +309,7 @@
       </div>
       <div>
         <h1>notifyhub</h1>
-        <p>Codex 完成通知</p>
+        <p>Codex / DSH 完成通知</p>
       </div>
     </div>
     <div class="top-actions">
@@ -396,6 +396,20 @@
           <button class="btn" id="installBtn">安装 / 更新 hooks</button>
         </div>
         <div class="hint" id="hooksHint">安装后在 Codex 里运行 <code>/hooks</code> 信任 notifyhub。</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>DeepSeek Harness</h2>
+            <p>dsh 会话结束也会发飞书。</p>
+          </div>
+          <span id="dshPill" class="pill pill-off">未检测到 dsh</span>
+        </div>
+        <div class="row-actions">
+          <button class="btn" id="installDshBtn">安装 DSH 插件</button>
+        </div>
+        <div class="hint" id="dshHint">安装后重启 <code>dsh web</code> 生效。</div>
       </div>
     </section>
 
@@ -554,6 +568,17 @@ async function loadStatus() {
 
   if (data.codex.hooks_installed) setPill("hooksPill", "已安装", "ok");
   else setPill("hooksPill", "未安装", "off");
+
+  const dsh = data.dsh || {};
+  if (dsh.profile_installed) setPill("dshPill", "已安装", "ok");
+  else if (dsh.dsh_found && dsh.plugin_available) setPill("dshPill", "可安装", "warn");
+  else setPill("dshPill", "未检测到 dsh", "off");
+
+  $("dshHint").innerHTML = dsh.profile_installed
+    ? "已安装到 web profile；重启 <code>dsh web</code> 生效。"
+    : dsh.dsh_found
+      ? "点击安装；安装后重启 <code>dsh web</code>。"
+      : "未找到 dsh。先安装：<code>npx @deepseek-ai/dsh web</code>";
 
   $("hooksHint").innerHTML = '安装后在 Codex 里运行 <code>/hooks</code> 信任 notifyhub。';
 }
@@ -824,6 +849,22 @@ async function installHooks() {
   }
 }
 
+async function installDsh() {
+  const button = $("installDshBtn");
+  button.disabled = true;
+  button.textContent = "安装中…";
+  try {
+    const data = await api("/api/hooks/install-dsh", { method: "POST", body: "{}" });
+    toast(data.ok ? "DSH 插件已安装，重启 dsh web 生效。" : (data.error || "安装失败"), data.ok ? "ok" : "error");
+    await loadStatus();
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "安装 DSH 插件";
+  }
+}
+
 function applyTheme(mode) {
   document.documentElement.dataset.theme = mode === "auto" ? "" : mode;
   localStorage.setItem("notifyhub-theme", mode);
@@ -840,6 +881,7 @@ function bindEvents() {
   $("saveBtn").addEventListener("click", () => persist());
   $("testBtn").addEventListener("click", sendTest);
   $("installBtn").addEventListener("click", installHooks);
+  $("installDshBtn").addEventListener("click", installDsh);
   $("quotaRefresh").addEventListener("click", () => loadQuota(true));
   $("themeBtn").addEventListener("click", cycleTheme);
   $("receiveType").addEventListener("change", receivePlaceholder);

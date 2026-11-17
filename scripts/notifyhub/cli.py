@@ -2,10 +2,12 @@ import argparse
 import json
 import os
 import shlex
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
-from . import __version__
+from . import __version__, dsh_install
 from .adapters import get_adapter, sources
 from .channels import channels as channel_names
 from .codex_meta import codex_home, find_db
@@ -176,6 +178,11 @@ def cmd_doctor(args):
     goals_db = find_db("goals")
     checks.append(("Codex goals DB", goals_db is not None, str(goals_db or "未找到")))
 
+    dsh_state = dsh_install.status()
+    dsh_ok = bool(dsh_state["dsh_found"] and dsh_state["plugin_available"])
+    dsh_detail = "dsh + plugin" if dsh_ok else ("未找到 dsh" if not dsh_state["dsh_found"] else "plugin 缺失")
+    checks.append(("DeepSeek Harness", dsh_ok, dsh_detail))
+
     for label, ok, detail in checks:
         symbol = "✓" if ok else ("○" if detail == "已关闭" else "✗")
         print(f"{symbol} {label}: {detail}")
@@ -204,6 +211,44 @@ def cmd_gui(args):
     path, created = ensure_config(args.config)
     print(f"{'已创建' if created else '配置文件'}: {path}")
     run_gui(path, host=args.host, port=args.port, open_browser=not args.no_open)
+    return 0
+
+
+def cmd_install_dsh(args):
+    plugin = dsh_install.find_plugin()
+    if plugin is None:
+        print("找不到 integrations/dsh，请确认 notifyhub 包完整。")
+        return 1
+
+    dsh = dsh_install.dsh_binary()
+    if args.print_only or dsh is None:
+        command = dsh_install.build_command(args.profile)
+        print(" ".join(shlex.quote(part) for part in command))
+        if dsh is None:
+            print("未找到 dsh。先安装 DeepSeek Harness：npx @deepseek-ai/dsh web")
+            print("也可以用 npx 安装插件：")
+            print(
+                " ".join(
+                    shlex.quote(part)
+                    for part in [
+                        "npx",
+                        "@deepseek-ai/dsh",
+                        "plugin",
+                        "--profile",
+                        args.profile,
+                        "add",
+                        f"link:{plugin}",
+                    ]
+                )
+            )
+        return 0
+
+    result = dsh_install.install(args.profile)
+    if not result["ok"]:
+        print(f"安装失败：{result.get('stderr') or result.get('error', '')}")
+        return 1
+
+    print("已安装 DSH 插件。重启 dsh web 生效。")
     return 0
 
 
@@ -254,6 +299,11 @@ def build_parser():
     gui.add_argument("--port", type=int, default=8765)
     gui.add_argument("--no-open", action="store_true")
     gui.set_defaults(func=cmd_gui)
+
+    dsh = subparsers.add_parser("install-dsh", help="安装 DeepSeek Harness 插件")
+    dsh.add_argument("--profile", default="web")
+    dsh.add_argument("--print", action="store_true", dest="print_only")
+    dsh.set_defaults(func=cmd_install_dsh)
 
     return parser
 

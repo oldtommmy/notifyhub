@@ -1,13 +1,13 @@
 ---
 name: notifyhub
-description: Set up and manage Codex turn-completion notifications through a Feishu app bot (private chat), including app credentials, owner open_id lookup, remaining-quota display, test sends, Codex Stop hook installation, and a local web GUI. Use when the user asks for Codex 完成通知、飞书通知、notifyhub、安装通知 hook、剩余额度通知, or wants a reusable completion-notification setup for Codex.
+description: Set up and manage completion notifications for Codex and DeepSeek Harness (dsh) through a Feishu app bot (private chat), including app credentials, owner open_id lookup, remaining-quota display, test sends, Codex Stop hook installation, a dsh bundle plugin, and a local web GUI. Use when the user asks for Codex 完成通知、DeepSeek Harness 通知、飞书通知、notifyhub、安装通知 hook、剩余额度通知, or wants a reusable completion-notification setup.
 metadata:
   version: "0.1.0"
 ---
 
 # notifyhub
 
-Set up a local notification gateway that sends a Feishu private message when a Codex turn or goal round finishes. Everything ships in `scripts/`: a Python CLI, a Feishu app-bot sender, a Codex `Stop` hook installer, and a loopback-only web GUI. No background service is required.
+Set up a local notification gateway that sends a Feishu private message when a Codex turn or goal round finishes, or when a DeepSeek Harness (`dsh`) session ends. Everything ships in `scripts/` and `integrations/dsh/`: a Python CLI, a Feishu app-bot sender, a Codex `Stop` hook installer, a dsh bundle plugin, and a loopback-only web GUI. No background service is required.
 
 `SKILL_ROOT` is the directory containing this file. Resolve it once and use the bundled launcher for every command:
 
@@ -23,12 +23,14 @@ python3 "$SKILL_ROOT/scripts/notifyhub.py" --help
 - Sends a Feishu card through a self-built Feishu app bot.
 - Caches quota for 10 minutes so most turns do not start an app-server.
 - Merges `~/.codex/hooks.json` without touching the existing `notify` config.
-- Provides a local GUI for credentials, four notification switches, quota, and preview.
+- Ships a `dsh-notifyhub` bundle plugin that listens to `session/event` `turn/end` in DeepSeek Harness.
+- Provides a local GUI for credentials, four notification switches, quota, preview, and DSH install.
 
 ## Prerequisites
 
 - macOS, with Codex CLI or the desktop app signed in.
 - Python 3.10 or newer.
+- Optional: DeepSeek Harness (`dsh`) installed via `npx @deepseek-ai/dsh web` or a global `dsh` binary.
 - A Feishu self-built app with:
   - Bot capability enabled.
   - Permission `im:message:send_as_bot`.
@@ -126,7 +128,7 @@ Then tell the user to trust it:
 
 If the hook was trusted before and its definition changed, trust it again. The hook command embeds the absolute path to `scripts/notifyhub.py`; rerun `install-hooks` if the skill moves.
 
-### 6. Verify end to end
+### 6. Verify Codex end to end
 
 ```bash
 python3 "$SKILL_ROOT/scripts/notifyhub.py" doctor
@@ -134,7 +136,31 @@ python3 "$SKILL_ROOT/scripts/notifyhub.py" doctor
 
 Then have the user run one Codex turn. A card should arrive with project, session, model, goal status, remaining quota, and the last assistant message.
 
-### 7. Optional GUI
+### 7. DeepSeek Harness (optional)
+
+Check whether `dsh` is available:
+
+```bash
+command -v dsh && dsh --version
+```
+
+Install the bundled dsh plugin into the web profile:
+
+```bash
+python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile web
+```
+
+Then restart `dsh web`. The plugin listens to the persisted `session/event` stream, and on `turn/end` sends the session title, last user prompt, last assistant message, and model to the same notifyhub configuration. Subagent sessions are skipped by default.
+
+For headless tasks, install into the headless profile as well:
+
+```bash
+python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile headless
+```
+
+If `dsh` is missing, the command prints the equivalent `npx @deepseek-ai/dsh plugin ...` command. See `references/dsh.md`.
+
+### 8. Optional GUI
 
 ```bash
 python3 "$SKILL_ROOT/scripts/notifyhub.py" gui
@@ -145,7 +171,7 @@ The GUI binds to `127.0.0.1`, generates a random access token, and exposes only:
 - Feishu app credentials and receive target.
 - Goal-round notifications, recent-prompt excerpt, last-message excerpt, remaining-quota display.
 - Current quota with refresh.
-- Test send and hook install.
+- Test send, Codex hook install, and DSH plugin install.
 - Feishu card preview.
 
 ## Decision rules
@@ -164,9 +190,11 @@ The GUI binds to `127.0.0.1`, generates a random access token, and exposes only:
 - `scripts/notifyhub/` — Python package (adapter, Feishu channels, GUI, quota).
 - `scripts/setup_config.py` — safe config writer.
 - `scripts/feishu_probe.py` — credential validation, owner lookup, test send.
-- `scripts/selftest.sh` — bundled test suite.
+- `scripts/selftest.sh` — bundled Python and dsh plugin tests.
+- `integrations/dsh/` — DeepSeek Harness bundle plugin.
 - `references/feishu-setup.md` — app creation, permissions, receive targets, error codes.
 - `references/config.md` — full config schema and advanced channels.
+- `references/dsh.md` — DeepSeek Harness plugin install, events, and troubleshooting.
 - `references/troubleshooting.md` — hook trust, logs, quota, common failures.
 - `assets/gui-preview.png` — GUI preview.
 

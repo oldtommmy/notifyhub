@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import quota
+from . import dsh_install, quota
 from .channels.feishu_app import RECEIVE_ID_TYPES
 from .codex_meta import codex_home, find_db
 from .config import config_path, deep_merge, load_config, save_config
@@ -98,6 +98,7 @@ def status_payload(config_file):
             "state_db": str(state_db) if state_db else "",
             "goals_db": str(goals_db) if goals_db else "",
         },
+        "dsh": dsh_install.status("web"),
         "log_path": config.get("log_path", ""),
     }
 
@@ -299,6 +300,9 @@ class GuiHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/hooks/uninstall":
                 result = uninstall_codex(codex_home())
                 self._json({"ok": True, "removed": result["removed"], "path": str(result["path"])})
+            elif parsed.path == "/api/hooks/install-dsh":
+                result = dsh_install.install("web")
+                self._json(result, 200 if result.get("ok") else 400)
             else:
                 self._error("not found", 404)
         except ValueError as error:
