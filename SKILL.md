@@ -149,21 +149,23 @@ Check whether `dsh` is available:
 command -v dsh && dsh --version
 ```
 
-Install the bundled dsh plugin into the web profile:
+DSH Desktop and `dsh web` use different profiles. Install into the profile the host actually uses:
 
 ```bash
+# DeepSeek Harness.app (desktop app)
+python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile desktop
+
+# dsh web / headless
 python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile web
 ```
 
-Then restart `dsh web`. The plugin listens to the persisted `session/event` stream, and on `turn/end` sends the session title, last user prompt, last assistant message, and model to the same notifyhub configuration. Subagent sessions are skipped by default.
+Restart the matching host: quit and reopen DeepSeek Harness.app, or restart `dsh web`. The plugin listens to the persisted `session/event` stream, and on `turn/end` sends the session title, last user prompt, last assistant message, and model to the same notifyhub configuration. Subagent sessions are skipped by default.
 
-For headless tasks, install into the headless profile as well:
-
-```bash
-python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile headless
-```
+The desktop app's profile is managed by the app. Its official install path is **Settings → Plugins**; `install-dsh --profile desktop` writes the profile directly and works after a restart, but an app update may reset it. On Windows, use `python` instead of `python3`; if the plugin cannot find Python, set the plugin row's `config.command` to `["py", "-3", "C:/.../notifyhub.py", "hook", "dsh"]`.
 
 If `dsh` is missing, the command prints the equivalent `npx @deepseek-ai/dsh plugin ...` command. See `references/dsh.md`.
+
+Plugin diagnostics are appended to `~/.local/state/notifyhub/dsh-plugin.log` (`loaded`, `turn/end`, `send`, spawn errors).
 
 ### 8. Optional GUI
 

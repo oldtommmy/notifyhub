@@ -1,12 +1,29 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import os from "node:os";
 
 export const name = "dsh-notifyhub";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const maxSeen = 500;
+
+function log(message) {
+  try {
+    const file = process.env.NOTIFYHUB_DSH_LOG || path.join(os.homedir(), ".local", "state", "notifyhub", "dsh-plugin.log");
+    mkdirSync(path.dirname(file), { recursive: true });
+    appendFileSync(file, `${new Date().toISOString()} ${message}\n`);
+  } catch {
+    /* logging is best effort */
+  }
+}
+
+function pythonCommand() {
+  if (process.env.NOTIFYHUB_PYTHON) return [process.env.NOTIFYHUB_PYTHON];
+  if (process.env.PYTHON) return [process.env.PYTHON];
+  return process.platform === "win32" ? ["python"] : ["python3"];
+}
 
 function resolveCommand(config) {
   if (Array.isArray(config?.command) && config.command.length > 0) {
@@ -19,7 +36,7 @@ function resolveCommand(config) {
   ];
   const launcher = candidates.find((candidate) => existsSync(candidate));
   if (launcher) {
-    return [process.env.NOTIFYHUB_PYTHON || "python3", launcher, "hook", "dsh"];
+    return [...pythonCommand(), launcher, "hook", "dsh"];
   }
   return ["notifyhub", "hook", "dsh"];
 }
@@ -105,20 +122,25 @@ export function apply(ctx, config = {}) {
   const command = resolveCommand(config);
   const seen = new Set();
   const models = new Map();
+  log(`loaded; command=${command.join(" ")}`);
 
   function send(payload) {
+    log(`send session=${payload.session_id} status=${payload.status} origin=${payload.origin}`);
     try {
       const child = spawn(command[0], command.slice(1), {
         stdio: ["pipe", "ignore", "ignore"],
         detached: true,
+        windowsHide: true,
       });
       child.on("error", (error) => {
+        log(`spawn failed: ${error?.message || error}`);
         console.warn("[dsh-notifyhub] notify failed:", error?.message || error);
       });
       child.stdin.on("error", () => {});
       child.stdin.end(JSON.stringify(payload));
       child.unref();
     } catch (error) {
+      log(`notify failed: ${error?.message || error}`);
       console.warn("[dsh-notifyhub] notify failed:", error?.message || error);
     }
   }
@@ -133,11 +155,15 @@ export function apply(ctx, config = {}) {
     }
 
     if (event.type !== "turn/end") return;
+    log(`turn/end session=${session.id} status=${event.data?.kind || "completed"}`);
 
     const header = session.header || {};
     const origin =
       header.parentSession || (header.delegationDepth || 0) > 0 ? "subagent" : "main";
-    if (origin === "subagent" && config.includeSubagents !== true) return;
+    if (origin === "subagent" && config.includeSubagents !== true) {
+      log(`skip subagent session=${session.id}`);
+      return;
+    }
 
     const key = `${session.id}:${event.seq ?? event.time ?? ""}`;
     if (seen.has(key)) return;

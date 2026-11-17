@@ -29,7 +29,8 @@ const ctx = {
 };
 
 try {
-  apply(ctx, { command: ["sh", "-c", `cat > ${JSON.stringify(output)}`] });
+  const capture = "require('fs').writeFileSync(process.argv[1], require('fs').readFileSync(0))";
+  apply(ctx, { command: [process.execPath, "-e", capture, output] });
   const handle = handlers.get("session/event");
   assert(typeof handle === "function", "session/event handler was not registered");
 

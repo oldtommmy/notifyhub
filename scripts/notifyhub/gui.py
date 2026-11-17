@@ -99,7 +99,7 @@ def status_payload(config_file):
             "state_db": str(state_db) if state_db else "",
             "goals_db": str(goals_db) if goals_db else "",
         },
-        "dsh": dsh_install.status("web"),
+        "dsh": dsh_install.status(),
         "log_path": config.get("log_path", ""),
     }
 
@@ -302,7 +302,9 @@ class GuiHandler(BaseHTTPRequestHandler):
                 result = uninstall_codex(codex_home())
                 self._json({"ok": True, "removed": result["removed"], "path": str(result["path"])})
             elif parsed.path == "/api/hooks/install-dsh":
-                result = dsh_install.install("web")
+                profile = str(body.get("profile") or "web")
+                result = dsh_install.install(profile)
+                result["profile"] = profile
                 self._json(result, 200 if result.get("ok") else 400)
             elif parsed.path == "/api/feishu/receivers":
                 config = load_config(self.server.config_file)

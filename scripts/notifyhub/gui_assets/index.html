@@ -247,6 +247,10 @@
   .inline-action:disabled { color: var(--muted); cursor: default; text-decoration: none; }
   .field-note { color: var(--muted); font-size: 11px; line-height: 1.65; }
   .field-note:empty { display: none; }
+  .dsh-target { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .dsh-target > span { color: var(--muted); font-size: 11.5px; font-weight: 650; flex: 0 0 auto; }
+  .dsh-target .glass-segments { flex: 1; margin-bottom: 0; }
+  #dshProfile button[aria-selected="true"] { background: var(--glass-thumb); box-shadow: var(--glass-inset); }
   .empty { padding: 18px; text-align: center; color: var(--muted); font-size: 12px; border: 1px dashed var(--line-strong); border-radius: 12px; }
   .glass-segments {
     position: relative; display: flex; gap: 2px; padding: 4px; margin-bottom: 14px;
@@ -445,6 +449,13 @@
           </div>
           <span id="dshPill" class="pill pill-off">未检测到 dsh</span>
         </div>
+        <div class="dsh-target">
+          <span>安装到</span>
+          <div class="glass-segments" id="dshProfile" role="tablist" aria-label="DSH 安装目标">
+            <button type="button" role="tab" data-value="desktop" aria-selected="true">桌面版</button>
+            <button type="button" role="tab" data-value="web" aria-selected="false">Web</button>
+          </div>
+        </div>
         <div class="row-actions">
           <button class="btn" id="installDshBtn">安装 DSH 插件</button>
         </div>
@@ -490,6 +501,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 let state = { config: null, dirty: false, toastTimer: null };
 let previewGoalValue = "active";
 let receiveTypeValue = "open_id";
+let dshProfile = "desktop";
 const RECEIVE_TYPES = [
   { value: "open_id", label: "open_id", hint: "应用所有者 / 用户本人，默认发给你自己" },
   { value: "email", label: "邮箱", hint: "发给租户内该邮箱对应的用户" },
@@ -735,15 +747,25 @@ async function loadStatus() {
   else setPill("hooksPill", "未安装", "off");
 
   const dsh = data.dsh || {};
-  if (dsh.profile_installed) setPill("dshPill", "已安装", "ok");
-  else if (dsh.dsh_found && dsh.plugin_available) setPill("dshPill", "可安装", "warn");
+  const profiles = dsh.profiles || {};
+  const desktopInstalled = profiles.desktop === true;
+  const webInstalled = profiles.web === true;
+  if (desktopInstalled && webInstalled) setPill("dshPill", "desktop + web", "ok");
+  else if (desktopInstalled) setPill("dshPill", "desktop 已装", "ok");
+  else if (webInstalled) setPill("dshPill", "仅 web", "warn");
+  else if (dsh.dsh_found && dsh.plugin_available) setPill("dshPill", "未安装", "warn");
   else setPill("dshPill", "未检测到 dsh", "off");
 
-  $("dshHint").innerHTML = dsh.profile_installed
-    ? "已安装到 web profile；重启 <code>dsh web</code> 生效。"
-    : dsh.dsh_found
-      ? "点击安装；安装后重启 <code>dsh web</code>。"
-      : "未找到 dsh。先安装：<code>npx @deepseek-ai/dsh web</code>";
+  if (!profiles[dshProfile]) dshProfile = dsh.desktop_app || desktopInstalled ? "desktop" : "web";
+  selectDshProfile(dshProfile);
+
+  $("dshHint").innerHTML = desktopInstalled
+    ? "已安装到 desktop profile；重启 DeepSeek Harness 生效。"
+    : webInstalled
+      ? "web 已安装；桌面版还需要装到 desktop。"
+      : dsh.dsh_found
+        ? "选择目标后安装；桌面版装完重启 App，Web 重启 <code>dsh web</code>。"
+        : "未找到 dsh。先安装：<code>npx @deepseek-ai/dsh web</code>";
 
   $("hooksHint").innerHTML = '安装后在 Codex 里运行 <code>/hooks</code> 信任 notifyhub。';
 }
@@ -1014,19 +1036,32 @@ async function installHooks() {
   }
 }
 
+function selectDshProfile(value) {
+  dshProfile = value;
+  for (const button of document.querySelectorAll("#dshProfile [role=tab]")) {
+    button.setAttribute("aria-selected", button.dataset.value === value ? "true" : "false");
+  }
+  const install = $("installDshBtn");
+  if (install) install.textContent = value === "desktop" ? "安装到桌面版" : "安装到 Web";
+}
+
 async function installDsh() {
   const button = $("installDshBtn");
   button.disabled = true;
   button.textContent = "安装中…";
   try {
-    const data = await api("/api/hooks/install-dsh", { method: "POST", body: "{}" });
-    toast(data.ok ? "DSH 插件已安装，重启 dsh web 生效。" : (data.error || "安装失败"), data.ok ? "ok" : "error");
+    const data = await api("/api/hooks/install-dsh", {
+      method: "POST",
+      body: JSON.stringify({ profile: dshProfile }),
+    });
+    const label = dshProfile === "desktop" ? "桌面版" : "Web";
+    toast(data.ok ? `DSH 插件已安装到${label}，重启后生效。` : (data.error || "安装失败"), data.ok ? "ok" : "error");
     await loadStatus();
   } catch (error) {
     toast(error.message, "error");
   } finally {
     button.disabled = false;
-    button.textContent = "安装 DSH 插件";
+    selectDshProfile(dshProfile);
   }
 }
 
@@ -1047,6 +1082,9 @@ function bindEvents() {
   $("testBtn").addEventListener("click", sendTest);
   $("installBtn").addEventListener("click", installHooks);
   $("installDshBtn").addEventListener("click", installDsh);
+  for (const button of document.querySelectorAll("#dshProfile [role=tab]")) {
+    button.addEventListener("click", () => selectDshProfile(button.dataset.value));
+  }
   $("quotaRefresh").addEventListener("click", () => loadQuota(true));
   $("themeBtn").addEventListener("click", cycleTheme);
   $("receiveTypeTrigger").addEventListener("click", () => toggleReceiveTypeMenu());

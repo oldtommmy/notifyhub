@@ -65,12 +65,13 @@ python3 "$SKILL_ROOT/scripts/notifyhub.py" test --channel feishu_app
 python3 "$SKILL_ROOT/scripts/notifyhub.py" install-hooks
 
 # 5. 可选：安装 DeepSeek Harness 插件
+python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile desktop
 python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile web
 ```
 
 然后打开 Codex，运行 `/hooks` 信任 `notifyhub` 的 Stop hook。桌面 App 用 Settings → Hooks。
 
-DeepSeek Harness 安装后重启 `dsh web`；插件在 `turn/end` 时发送 session 标题、最近提问、最后一条消息和模型。headless 任务可再装 `--profile headless`。
+DSH Desktop 使用 `desktop` profile，`dsh web` 使用 `web` profile，需要分别安装；桌面版安装后重启 App，web 安装后重启 `dsh web`。桌面版官方推荐从 App 的 **设置 → 插件** 安装，CLI 写入 desktop profile 的方式实测可用，但 App 更新可能重置。
 
 GUI：
 

@@ -1,9 +1,6 @@
 import argparse
 import json
 import os
-import shlex
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -128,7 +125,8 @@ def cmd_install_hooks(args):
     print("下一步:")
     print("1. 打开 Codex，运行 /hooks 并信任新增的 notifyhub hook")
     print("2. 检查配置（飞书应用 / 群机器人 / iMessage）: " + str(_config_target(args)))
-    print(f"3. 运行自检: {shlex.quote(sys.executable)} {shlex.quote(str(launcher_path()))} --config {shlex.quote(str(_config_target(args)))} test")
+    self_test = [sys.executable, str(launcher_path()), "--config", str(_config_target(args)), "test"]
+    print(f"3. 运行自检: {dsh_install.format_command(self_test)}")
     return 0
 
 
@@ -179,8 +177,14 @@ def cmd_doctor(args):
     checks.append(("Codex goals DB", goals_db is not None, str(goals_db or "未找到")))
 
     dsh_state = dsh_install.status()
+    installed = ", ".join(dsh_state.get("installed_profiles") or [])
     dsh_ok = bool(dsh_state["dsh_found"] and dsh_state["plugin_available"])
-    dsh_detail = "dsh + plugin" if dsh_ok else ("未找到 dsh" if not dsh_state["dsh_found"] else "plugin 缺失")
+    if dsh_ok and installed:
+        dsh_detail = f"dsh + plugin ({installed})"
+    elif dsh_ok:
+        dsh_detail = "dsh 已安装，插件未装"
+    else:
+        dsh_detail = "未找到 dsh" if not dsh_state["dsh_found"] else "plugin 缺失"
     checks.append(("DeepSeek Harness", dsh_ok, dsh_detail))
 
     for label, ok, detail in checks:
@@ -223,24 +227,21 @@ def cmd_install_dsh(args):
     dsh = dsh_install.dsh_binary()
     if args.print_only or dsh is None:
         command = dsh_install.build_command(args.profile)
-        print(" ".join(shlex.quote(part) for part in command))
+        print(dsh_install.format_command(command))
         if dsh is None:
             print("未找到 dsh。先安装 DeepSeek Harness：npx @deepseek-ai/dsh web")
             print("也可以用 npx 安装插件：")
-            print(
-                " ".join(
-                    shlex.quote(part)
-                    for part in [
-                        "npx",
-                        "@deepseek-ai/dsh",
-                        "plugin",
-                        "--profile",
-                        args.profile,
-                        "add",
-                        f"link:{plugin}",
-                    ]
-                )
-            )
+            link_path = plugin.as_posix() if os.name == "nt" else str(plugin)
+            npx_command = [
+                "npx",
+                "@deepseek-ai/dsh",
+                "plugin",
+                "--profile",
+                args.profile,
+                "add",
+                f"link:{link_path}",
+            ]
+            print(dsh_install.format_command(npx_command))
         return 0
 
     result = dsh_install.install(args.profile)

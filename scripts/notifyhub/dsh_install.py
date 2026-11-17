@@ -1,8 +1,11 @@
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
+
+PROFILES = ("desktop", "web")
 
 
 def find_plugin():
@@ -18,15 +21,36 @@ def dsh_binary():
     return shutil.which("dsh")
 
 
+def desktop_app_installed():
+    candidates = [
+        Path("/Applications/DeepSeek Harness.app"),
+        Path.home() / "Applications" / "DeepSeek Harness.app",
+    ]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidates.append(Path(local) / "Programs" / "DeepSeek Harness")
+    program_files = os.environ.get("PROGRAMFILES")
+    if program_files:
+        candidates.append(Path(program_files) / "DeepSeek Harness")
+    return any(candidate.exists() for candidate in candidates)
+
+
 def build_command(profile="web"):
     plugin = find_plugin()
     if plugin is None:
         raise FileNotFoundError("integrations/dsh not found")
     dsh = dsh_binary() or "dsh"
-    return [dsh, "plugin", "--profile", profile, "add", f"link:{plugin}"]
+    link_path = plugin.as_posix() if os.name == "nt" else str(plugin)
+    return [dsh, "plugin", "--profile", profile, "add", f"link:{link_path}"]
 
 
-def profile_installed(profile="web"):
+def format_command(command):
+    if os.name == "nt":
+        return subprocess.list2cmdline(command)
+    return " ".join(shlex.quote(part) for part in command)
+
+
+def profile_installed(profile):
     home = Path(os.environ.get("DSH_HOME", "~/.dsh")).expanduser()
     path = home / "profiles" / profile / "package.json"
     try:
@@ -37,18 +61,24 @@ def profile_installed(profile="web"):
     return any("dsh-notifyhub" in key for key in dependencies)
 
 
-def status(profile="web"):
+def status():
     plugin = find_plugin()
+    profiles = {profile: profile_installed(profile) for profile in PROFILES}
+    installed = [profile for profile, ok in profiles.items() if ok]
     return {
         "dsh_found": bool(dsh_binary()),
         "plugin_available": plugin is not None,
-        "profile_installed": profile_installed(profile),
+        "profiles": profiles,
+        "installed_profiles": installed,
+        "profile_installed": bool(installed),
+        "desktop_app": desktop_app_installed(),
         "plugin_path": str(plugin or ""),
-        "profile": profile,
     }
 
 
 def install(profile="web"):
+    if not profile or "/" in profile or "\\" in profile:
+        return {"ok": False, "error": f"未知 profile：{profile}", "command": []}
     if not dsh_binary():
         return {
             "ok": False,
