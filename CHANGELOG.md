@@ -15,8 +15,8 @@
   loopback GUI, quota cache, dedupe, project filters, and quiet hours.
 - An npm-packable `dsh-notifyhub` package with the Python launcher bundled under
   `scripts/`, and a local `install-dsh` for link installs.
-- MIT license and a CI workflow for Ubuntu, macOS, and Windows (Python 3.10 and
-  3.13, Node 22).
+- MIT license and a CI workflow for Ubuntu and Windows (Python 3.10 and 3.13,
+  Node 22); macOS is covered by the local test run.
 
 ### Fixed
 
