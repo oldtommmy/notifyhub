@@ -27,6 +27,14 @@
 
 6. `SessionEnd` is not real-time: it runs on close or after roughly 30 minutes of idleness. Use `Stop` for turn completion.
 
+## Claude Code / Command Code hook never fires
+
+1. Confirm the hook is in the right file: `~/.claude/settings.json` or `~/.commandcode/settings.json`. `install-hooks --target ...` prints the exact path it wrote.
+2. Restart the host and run `/hooks` to confirm the notifyhub Stop hook.
+3. Check `~/.local/state/notifyhub/notifyhub.log`.
+4. If the card body is empty, confirm the payload contains `transcript_path` and that the JSONL file is readable. A missing transcript falls back to `last_assistant_message` / `prompt` in the payload.
+5. Only assistant `text` blocks are used; `thinking` and tool calls are intentionally excluded.
+
 ## Feishu send fails
 
 | Symptom | Likely cause | Fix |

@@ -29,14 +29,23 @@ function resolveCommand(config) {
   if (Array.isArray(config?.command) && config.command.length > 0) {
     return config.command;
   }
-  const root = path.resolve(here, "../../..");
-  const candidates = [
-    path.join(root, "scripts", "notifyhub.py"),
-    path.join(root, "notifyhub.py"),
-  ];
-  const launcher = candidates.find((candidate) => existsSync(candidate));
-  if (launcher) {
-    return [...pythonCommand(), launcher, "hook", "dsh"];
+  // The package can live in three layouts: a source checkout (notifyhub.py at
+  // the repo root), the skill layout (scripts/notifyhub.py), or the published
+  // npm layout (scripts/notifyhub.py beside lib/). Walk up a few levels and
+  // take the first launcher that exists.
+  let dir = here;
+  for (let depth = 0; depth < 6; depth += 1) {
+    const candidates = [
+      path.join(dir, "scripts", "notifyhub.py"),
+      path.join(dir, "notifyhub.py"),
+    ];
+    const launcher = candidates.find((candidate) => existsSync(candidate));
+    if (launcher) {
+      return [...pythonCommand(), launcher, "hook", "dsh"];
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
   return ["notifyhub", "hook", "dsh"];
 }

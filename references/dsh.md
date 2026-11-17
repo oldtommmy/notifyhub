@@ -44,6 +44,16 @@ Or manually:
 dsh plugin --profile web add link:"$SKILL_ROOT/integrations/dsh"
 ```
 
+From npm (once the package is published):
+
+```bash
+dsh plugin --profile web add dsh-notifyhub
+dsh plugin --profile desktop add dsh-notifyhub
+```
+
+The npm package bundles the Python launcher under `scripts/`, so it is
+self-contained; the `link:` form is for a local checkout.
+
 Restart `dsh web` after installing a bundle. For one-off/headless runs, install
 the plugin into the headless profile as well:
 

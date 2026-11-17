@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.13"]
+        exclude:
+          - os: macos-latest
+            python: "3.10"
+    env:
+      PYTHONPATH: scripts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Python tests
+        run: python -m unittest discover -s tests -v
+      - name: DSH plugin test
+        run: node integrations/dsh/test.mjs
+      - name: Manifest check
+        run: python -c "import json; p=json.load(open('integrations/dsh/package.json', encoding='utf-8')); assert p['dsh']['bundle']['patch']; assert p['license'] == 'MIT'"
+      - name: CLI smoke
+        run: python scripts/notifyhub.py --version

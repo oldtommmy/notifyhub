@@ -1,0 +1,34 @@
+name: Publish npm
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Build package
+        run: python scripts/build_npm.py
+      - name: Publish
+        if: ${{ env.NPM_TOKEN != '' }}
+        run: npm publish dist/npm/dsh-notifyhub --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
+      - name: Missing token
+        if: ${{ env.NPM_TOKEN == '' }}
+        run: echo "::warning::NPM_TOKEN is not configured; skipping npm publish."

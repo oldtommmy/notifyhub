@@ -1,3 +1,4 @@
+import os
 import shlex
 import subprocess
 import unittest
@@ -35,6 +36,11 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("hook codex", command)
         self.assertIn(launcher_path().name, command)
         self.assertIn("/tmp/config.json", command)
+
+    @unittest.skipUnless(os.name == "nt", "windows-only assertion")
+    def test_hook_command_windows_has_no_posix_quotes(self):
+        command = hook_command(Path(r"C:\work\config.json"))
+        self.assertNotIn("'", command)
 
     def test_dsh_install_delegates_to_runtime(self):
         parts = ["python3", "/tmp/notifyhub.py", "hook", "dsh"]

@@ -1,15 +1,16 @@
 # notifyhub
 
-Codex / DeepSeek Harness 完成通知 · 飞书私聊 · Agent Skill
+Codex / DeepSeek Harness / Claude Code / Command Code 完成通知 · 飞书私聊 · Agent Skill
 
 ![notifyhub GUI](assets/gui-preview.png)
 
-`notifyhub` 在 Codex 每一轮或每个 goal round 结束、以及 DeepSeek Harness (`dsh`) session 结束时，通过飞书应用机器人给你发一条私聊卡片。它同时是一个 Agent Skill：`SKILL.md` 会把「检查环境 → 验证飞书凭据 → 找 open_id → 写配置 → 测试 → 安装 hook / dsh 插件 → 排障」整条流程交给 agent。
+`notifyhub` 在 Codex 每一轮或每个 goal round 结束、DeepSeek Harness (`dsh`) session 结束、Claude Code / Command Code 一轮结束时，通过飞书应用机器人给你发一条私聊卡片。它同时是一个 Agent Skill：`SKILL.md` 会把「检查环境 → 验证飞书凭据 → 找 open_id → 写配置 → 测试 → 安装 hook / dsh 插件 → 排障」整条流程交给 agent。
 
 ## 功能
 
 - Codex `Stop` hook，goal 模式每轮通知
 - DeepSeek Harness `dsh` bundle 插件，监听 `session/event` 的 `turn/end`
+- Claude Code / Command Code `Stop` hook，从 transcript 读取最终 `text`、最近提问和模型
 - 飞书 Card 2.0 卡片：状态标题、会话名、最近提问、模型、剩余额度、Goal
 - 最后一条 assistant 消息按 markdown 渲染（粗体、列表、行内代码、代码块、链接）
 - 剩余额度来自 Codex `account/rateLimits/read`，带 10 分钟缓存
@@ -87,14 +88,18 @@ python3 "$SKILL_ROOT/scripts/notifyhub.py" test --channel feishu_app
 # 4. 安装 Codex hook
 python3 "$SKILL_ROOT/scripts/notifyhub.py" install-hooks
 
-# 5. 可选：安装 DeepSeek Harness 插件
+# 5. 可选：安装 Claude Code / Command Code hook
+python3 "$SKILL_ROOT/scripts/notifyhub.py" install-hooks --target claude
+python3 "$SKILL_ROOT/scripts/notifyhub.py" install-hooks --target commandcode
+
+# 6. 可选：安装 DeepSeek Harness 插件
 python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile desktop
 python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile web
 ```
 
-然后打开 Codex，运行 `/hooks` 信任 `notifyhub` 的 Stop hook。桌面 App 用 Settings → Hooks。
+然后打开 Codex，运行 `/hooks` 信任 `notifyhub` 的 Stop hook。桌面 App 用 Settings → Hooks。Claude Code / Command Code 安装后重启对应宿主，在 `/hooks` 里确认。
 
-DSH Desktop 使用 `desktop` profile，`dsh web` 使用 `web` profile，需要分别安装；桌面版安装后重启 App，web 安装后重启 `dsh web`。桌面版官方推荐从 App 的 **设置 → 插件** 安装，CLI 写入 desktop profile 的方式实测可用，但 App 更新可能重置。
+DSH Desktop 使用 `desktop` profile，`dsh web` 使用 `web` profile，需要分别安装；桌面版安装后重启 App，web 安装后重启 `dsh web`。桌面版官方推荐从 App 的 **设置 → 插件** 安装，CLI 写入 desktop profile 的方式实测可用，但 App 更新可能重置。也可以直接用 npm 包（发布后）：`dsh plugin --profile desktop add dsh-notifyhub` / `dsh plugin --profile web add dsh-notifyhub`，包内已带 Python launcher。
 
 GUI：
 
@@ -121,6 +126,8 @@ python3 scripts/notifyhub.py doctor
 - [references/config.md](references/config.md)
 - [references/troubleshooting.md](references/troubleshooting.md)
 
+变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 目录结构
 
 ```text
@@ -144,3 +151,7 @@ Skill 包含可执行的 Python 代码和 dsh bundle 插件，会写 `~/.codex/h
 - App Secret 只保存在本机配置（mode 600）或环境变量中
 - 通知内容会发到飞书，注意敏感项目
 - 不要提交 `~/.config/notifyhub/config.json`
+
+## License
+
+MIT © 2026 oldtommmy

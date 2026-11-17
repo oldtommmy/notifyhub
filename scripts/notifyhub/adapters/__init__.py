@@ -1,6 +1,11 @@
-from . import codex, dsh
+from . import claude, codex, commandcode, dsh
 
-_ADAPTERS = {"codex": codex, "dsh": dsh}
+_ADAPTERS = {
+    "claude": claude,
+    "codex": codex,
+    "commandcode": commandcode,
+    "dsh": dsh,
+}
 
 
 def get_adapter(source: str):

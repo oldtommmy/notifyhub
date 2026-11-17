@@ -4,13 +4,12 @@ import os
 import sys
 from pathlib import Path
 
-from . import __version__, dsh_install
+from . import __version__, dsh_install, installer
 from .adapters import get_adapter, sources
 from .channels import channels as channel_names
-from .codex_meta import codex_home, find_db
+from .codex_meta import find_db
 from .config import config_path, ensure_config, load_config
 from .events import Notification
-from .installer import has_notifyhub_hook, install_codex, uninstall_codex
 from .log import get_logger
 from .render import render_text
 from .router import dispatch
@@ -116,19 +115,27 @@ def cmd_install_hooks(args):
     config = load_config(args.config)
     ensure_config(args.config)
 
-    events = args.events.split(",") if args.events else config["codex"].get("events", ["Stop"])
+    target = args.target
+    settings = config.get(target, {})
+    events = args.events.split(",") if args.events else settings.get("events", ["Stop"])
     events = [event.strip() for event in events if event.strip()]
-    command = args.command or hook_command(_config_target(args))
+    command = args.command or hook_command(_config_target(args), target)
+    path = installer.target_path(target)
 
-    result = install_codex(codex_home(), events, command)
+    result = installer.install_hooks(path, events, command, target)
     print(f"已写入: {result['path']}")
+    print(f"目标: {target}")
     print(f"事件: {', '.join(result['events'])}")
     print(f"命令: {result['command']}")
     if result["backup"]:
         print(f"备份: {result['backup']}")
     print()
     print("下一步:")
-    print("1. 打开 Codex，运行 /hooks 并信任新增的 notifyhub hook")
+    if target == "codex":
+        print("1. 打开 Codex，运行 /hooks 并信任新增的 notifyhub hook")
+    else:
+        name = "Claude Code" if target == "claude" else "Command Code"
+        print(f"1. 重启 {name}，运行 /hooks 确认新增的 notifyhub hook")
     print("2. 检查配置（飞书应用 / 群机器人 / iMessage）: " + str(_config_target(args)))
     self_test = [sys.executable, str(launcher_path()), "--config", str(_config_target(args)), "test"]
     print(f"3. 运行自检: {dsh_install.format_command(self_test)}")
@@ -136,8 +143,15 @@ def cmd_install_hooks(args):
 
 
 def cmd_uninstall_hooks(args):
-    result = uninstall_codex(codex_home(), args.events.split(",") if args.events else None)
+    target = args.target
+    path = installer.target_path(target)
+    result = installer.uninstall_hooks(
+        path,
+        args.events.split(",") if args.events else None,
+        target,
+    )
     print(f"已处理: {result['path']}")
+    print(f"目标: {target}")
     print(f"移除 handler: {result['removed']}")
     if result["backup"]:
         print(f"备份: {result['backup']}")
@@ -172,8 +186,8 @@ def cmd_doctor(args):
     checks.append(("iMessage", imessage_ok, imessage_detail))
 
     events = config["codex"].get("events", ["Stop"])
-    installed = has_notifyhub_hook(codex_home(), events)
-    checks.append(("Codex hooks", installed, str(codex_home() / "hooks.json")))
+    installed = installer.has_target_hooks("codex", events)
+    checks.append(("Codex hooks", installed, str(installer.target_path("codex"))))
 
     state_db = find_db("state")
     checks.append(("Codex state DB", state_db is not None, str(state_db or "未找到")))
@@ -192,8 +206,15 @@ def cmd_doctor(args):
         dsh_detail = "未找到 dsh" if not dsh_state["dsh_found"] else "plugin 缺失"
     checks.append(("DeepSeek Harness", dsh_ok, dsh_detail))
 
+    for label, target in (("Claude Code hooks", "claude"), ("Command Code hooks", "commandcode")):
+        hook_path = installer.target_path(target)
+        if not hook_path.exists():
+            continue
+        installed = installer.has_target_hooks(target)
+        checks.append((label, installed, "已安装" if installed else "未安装"))
+
     for label, ok, detail in checks:
-        symbol = "✓" if ok else ("○" if detail == "已关闭" else "✗")
+        symbol = "✓" if ok else ("○" if detail in ("已关闭", "未安装") else "✗")
         print(f"{symbol} {label}: {detail}")
 
     critical = [checks[0], checks[4]]
@@ -281,14 +302,14 @@ def build_parser():
     init.add_argument("--force", action="store_true")
     init.set_defaults(func=cmd_init)
 
-    install = subparsers.add_parser("install-hooks", help="安装 Codex hooks")
-    install.add_argument("--target", choices=["codex"], default="codex")
+    install = subparsers.add_parser("install-hooks", help="安装 agent hooks")
+    install.add_argument("--target", choices=list(installer.TARGETS), default="codex")
     install.add_argument("--events", help="逗号分隔的事件列表，例如 Stop,Interrupt")
     install.add_argument("--command", help="覆盖写入的 hook 命令")
     install.set_defaults(func=cmd_install_hooks)
 
-    uninstall = subparsers.add_parser("uninstall-hooks", help="移除 Codex hooks")
-    uninstall.add_argument("--target", choices=["codex"], default="codex")
+    uninstall = subparsers.add_parser("uninstall-hooks", help="移除 agent hooks")
+    uninstall.add_argument("--target", choices=list(installer.TARGETS), default="codex")
     uninstall.add_argument("--events", help="逗号分隔的事件列表")
     uninstall.set_defaults(func=cmd_uninstall_hooks)
 

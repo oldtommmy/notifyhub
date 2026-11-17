@@ -2,6 +2,7 @@ import { apply } from "./lib/index.js";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -143,6 +144,23 @@ try {
   const selection = await waitForJson(path.join(directory, "session-4.json"));
   assert(selection.model === "deepseek-v4.1-flash-1017", "model/selection mismatch");
   assert(selection.title === "selection", "cwd basename fallback mismatch");
+
+  // npm layout: lib/ and scripts/notifyhub.py live beside each other.
+  const pkgDir = path.join(directory, "pkg");
+  await fs.mkdir(path.join(pkgDir, "lib"), { recursive: true });
+  await fs.mkdir(path.join(pkgDir, "scripts"), { recursive: true });
+  await fs.writeFile(path.join(pkgDir, "package.json"), JSON.stringify({ type: "module" }));
+  await fs.copyFile(new URL("./lib/index.js", import.meta.url), path.join(pkgDir, "lib", "index.js"));
+  await fs.writeFile(path.join(pkgDir, "scripts", "notifyhub.py"), "");
+  const resolverLog = path.join(directory, "resolver.log");
+  process.env.NOTIFYHUB_DSH_LOG = resolverLog;
+  const npmModule = await import(pathToFileURL(path.join(pkgDir, "lib", "index.js")).href);
+  npmModule.apply({ on() {} }, {});
+  const loaded = await fs.readFile(resolverLog, "utf8");
+  assert(
+    loaded.includes(path.join(pkgDir, "scripts", "notifyhub.py")),
+    "npm layout launcher was not found",
+  );
 
   console.log("dsh-notifyhub: ok");
 } finally {

@@ -79,6 +79,46 @@ Quota comes from Codex app-server `account/rateLimits/read`. It is cached at `~/
 
 The dsh plugin is installed separately; see `references/dsh.md`.
 
+## Claude Code notifications
+
+```json
+{
+  "claude": {
+    "enabled": true,
+    "events": ["Stop"],
+    "include_last_message": true,
+    "include_recent_prompt": true,
+    "include_session_id": false,
+    "max_message_chars": 600,
+    "max_prompt_chars": 160
+  }
+}
+```
+
+Install with `python3 scripts/notifyhub.py install-hooks --target claude`. The adapter reads the JSONL file at `transcript_path`: the title comes from `ai-title`, the recent prompt from `last-prompt` or the last real user message, the body from assistant `text` blocks only (`thinking` and tool calls are excluded), and the model from the transcript. The settings file is backed up before every write.
+
+## Command Code notifications
+
+```json
+{
+  "commandcode": {
+    "enabled": true,
+    "events": ["Stop"],
+    "include_last_message": true,
+    "include_recent_prompt": true,
+    "include_session_id": false,
+    "max_message_chars": 600,
+    "max_prompt_chars": 160
+  }
+}
+```
+
+Install with `--target commandcode`; it writes `~/.commandcode/settings.json`. Parsing is the same as Claude Code; if the transcript has no model, the adapter falls back to `~/.commandcode/config.json`.
+
+## Hook targets
+
+`install-hooks --target codex|claude|commandcode` merges the Stop handler into the matching settings file and backs it up. `uninstall-hooks --target ...` removes only notifyhub handlers. Codex keeps using `~/.codex/hooks.json`; the other targets use their own settings files.
+
 ## Receiver discovery
 
 `channels.feishu_app.receive_id_type` / `receive_id` are normally filled by the GUI's 「自动获取」 action. It resolves the app owner's `open_id` (you), with the owner email and bot chats as fallbacks. The type menu explains each target:

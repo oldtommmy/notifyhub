@@ -18,7 +18,7 @@ def format_command(parts, windows=None):
     return " ".join(shlex.quote(part) for part in values)
 
 
-def hook_command(config_path):
+def hook_command(config_path, source="codex"):
     return format_command(
         [
             sys.executable,
@@ -26,6 +26,6 @@ def hook_command(config_path):
             "--config",
             str(config_path),
             "hook",
-            "codex",
+            source,
         ]
     )

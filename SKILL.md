@@ -1,13 +1,13 @@
 ---
 name: notifyhub
-description: Set up and manage completion notifications for Codex and DeepSeek Harness (dsh) through a Feishu app bot (private chat), including app credentials, owner open_id lookup, remaining-quota display, test sends, Codex Stop hook installation, a dsh bundle plugin, and a local web GUI. Use when the user asks for Codex 完成通知、DeepSeek Harness 通知、飞书通知、notifyhub、安装通知 hook、剩余额度通知, or wants a reusable completion-notification setup.
+description: Set up and manage completion notifications for Codex, DeepSeek Harness (dsh), Claude Code, and Command Code through a Feishu app bot (private chat), including app credentials, owner open_id lookup, remaining-quota display, test sends, Stop hook installation for three agents, a dsh bundle plugin, and a local web GUI. Use when the user asks for Codex 完成通知、DeepSeek Harness 通知、Claude Code 通知、Command Code 通知、飞书通知、notifyhub、安装通知 hook、剩余额度通知, or wants a reusable completion-notification setup.
 metadata:
   version: "0.1.0"
 ---
 
 # notifyhub
 
-Set up a local notification gateway that sends a Feishu private message when a Codex turn or goal round finishes, or when a DeepSeek Harness (`dsh`) session ends. Everything ships in `scripts/` and `integrations/dsh/`: a Python CLI, a Feishu app-bot sender, a Codex `Stop` hook installer, a dsh bundle plugin, and a loopback-only web GUI. No background service is required.
+Set up a local notification gateway that sends a Feishu private message when a Codex turn or goal round finishes, a DeepSeek Harness (`dsh`) session ends, or a Claude Code / Command Code turn ends. Everything ships in `scripts/` and `integrations/dsh/`: a Python CLI, a Feishu app-bot sender, Stop hook installers for three agents, a dsh bundle plugin, and a loopback-only web GUI. No background service is required.
 
 `SKILL_ROOT` is the directory containing this file. Resolve it once and use the bundled launcher for every command:
 
@@ -19,17 +19,18 @@ python3 "$SKILL_ROOT/scripts/notifyhub.py" --help
 ## What it does
 
 - Reads Codex `Stop` hook payloads from stdin.
+- Reads Claude Code / Command Code `Stop` payloads and parses the JSONL transcript at `transcript_path` for the title, last human prompt, final `text` block, and model.
 - Adds the session title, the most recent user prompt, model, goal status, and remaining Codex quota.
 - Sends a Feishu card through a self-built Feishu app bot.
 - Caches quota for 10 minutes so most turns do not start an app-server.
-- Merges `~/.codex/hooks.json` without touching the existing `notify` config.
+- Merges `~/.codex/hooks.json`, `~/.claude/settings.json`, or `~/.commandcode/settings.json` without touching other hooks; every write is backed up.
 - Ships a `dsh-notifyhub` bundle plugin that listens to `session/event` `turn/end` in DeepSeek Harness.
 - Auto-discovers the receiver from App ID/Secret: app owner `open_id` first, then owner email or a bot chat.
 - Provides a local GUI for credentials, four notification switches, quota, preview, and DSH install.
 
 ## Prerequisites
 
-- macOS, with Codex CLI or the desktop app signed in.
+- macOS (the GUI workflow assumes it); Codex CLI/desktop, Claude Code, or Command Code installed.
 - Python 3.10 or newer.
 - Optional: DeepSeek Harness (`dsh`) installed via `npx @deepseek-ai/dsh web` or a global `dsh` binary.
 - A Feishu self-built app with:
@@ -53,7 +54,7 @@ command -v codex && codex --version
 ls -la ~/.codex/hooks.json 2>/dev/null || true
 ```
 
-Stop if Python is older than 3.10 or Codex is missing. The notification core is portable, but the hook and GUI workflow assumes macOS.
+Stop if Python is older than 3.10. Codex is only required for the Codex target; Claude Code and Command Code have their own hook targets.
 
 ### 2. Validate credentials and find the owner open_id
 
@@ -167,7 +168,18 @@ If `dsh` is missing, the command prints the equivalent `npx @deepseek-ai/dsh plu
 
 Plugin diagnostics are appended to `~/.local/state/notifyhub/dsh-plugin.log` (`loaded`, `turn/end`, `send`, spawn errors).
 
-### 8. Optional GUI
+### 8. Claude Code / Command Code (optional)
+
+Install the Stop hook into the agent the user actually runs:
+
+```bash
+python3 "$SKILL_ROOT/scripts/notifyhub.py" install-hooks --target claude
+python3 "$SKILL_ROOT/scripts/notifyhub.py" install-hooks --target commandcode
+```
+
+Restart the host and confirm the hook in `/hooks`. The installer backs up the existing settings and only touches notifyhub handlers. The adapter reads the JSONL transcript at `transcript_path`: the title comes from Claude's `ai-title`, the recent prompt from `last-prompt` or the last real user message, the body from assistant `text` blocks only (`thinking` and tool calls are excluded), and the model from the transcript or `~/.commandcode/config.json`. Remove with `uninstall-hooks --target ...`.
+
+### 9. Optional GUI
 
 ```bash
 python3 "$SKILL_ROOT/scripts/notifyhub.py" gui
@@ -189,6 +201,8 @@ The GUI binds to `127.0.0.1`, generates a random access token, and exposes only:
 - Feishu error `99991672` means the app lacks `im:message:send_as_bot` or an equivalent permission. Tell the user to add it and republish.
 - Feishu error `230001` means an invalid `receive_id`. Switch to `open_id` or `chat_id`; email may not resolve.
 - If quota lookup fails, notifications still work. The quota line is best-effort.
+- For Claude Code use `install-hooks --target claude`; for Command Code use `--target commandcode`. Use `uninstall-hooks --target ...` to remove only notifyhub handlers.
+- Never edit `~/.claude/settings.json` or `~/.commandcode/settings.json` by hand when the CLI can merge them; it backs up the file first.
 - Never print, echo, or log the App Secret. Avoid putting it in a shell command that will be shown in the transcript; use an environment variable or the GUI.
 
 ## Files

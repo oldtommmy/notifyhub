@@ -21,6 +21,17 @@ Or from the notifyhub skill:
 python3 /absolute/path/to/notifyhub/scripts/notifyhub.py install-dsh --profile web
 ```
 
+From npm (after the package is published):
+
+```bash
+dsh plugin --profile web add dsh-notifyhub
+dsh plugin --profile desktop add dsh-notifyhub
+```
+
+Do not publish this directory directly: the npm build step at the repository root
+(`python3 scripts/build_npm.py`) copies the Python launcher into `scripts/` so the
+package is self-contained.
+
 Restart `dsh web` after installing a bundle. For headless tasks, install into the
 `headless` profile as well.
 

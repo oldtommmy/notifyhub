@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Notifyhub",
+    "description": "Sends a Feishu private-chat card when a DeepSeek Harness turn ends, with the session title, last human prompt, final text, and model."
+  }
+}
