@@ -32,10 +32,11 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn('"C:\\Program Files\\Python\\python.exe"', expected)
 
     def test_hook_command_contains_launcher_and_event(self):
-        command = hook_command(Path("/tmp/config.json"))
+        config_path = Path("/tmp/config.json")
+        command = hook_command(config_path)
         self.assertIn("hook codex", command)
         self.assertIn(launcher_path().name, command)
-        self.assertIn("/tmp/config.json", command)
+        self.assertIn(str(config_path), command)
 
     @unittest.skipUnless(os.name == "nt", "windows-only assertion")
     def test_hook_command_windows_has_no_posix_quotes(self):
