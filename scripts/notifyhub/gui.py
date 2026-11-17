@@ -11,6 +11,7 @@ from .channels.feishu_app import RECEIVE_ID_TYPES
 from .codex_meta import codex_home, find_db
 from .config import config_path, deep_merge, load_config, save_config
 from .events import Notification
+from .feishu_discovery import discover as discover_receivers
 from .installer import has_notifyhub_hook, install_codex, uninstall_codex
 from .log import get_logger
 from .render import build_card, render_text
@@ -303,6 +304,23 @@ class GuiHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/hooks/install-dsh":
                 result = dsh_install.install("web")
                 self._json(result, 200 if result.get("ok") else 400)
+            elif parsed.path == "/api/feishu/receivers":
+                config = load_config(self.server.config_file)
+                saved = config["channels"]["feishu_app"]
+                app_id = str(body.get("app_id") or saved.get("app_id") or "").strip()
+                app_secret = str(body.get("app_secret") or "").strip()
+                if not app_secret or app_secret.startswith("${"):
+                    app_secret = str(saved.get("app_secret") or "")
+                base_url = str(body.get("base_url") or saved.get("base_url") or "https://open.feishu.cn")
+                if not app_id or not app_secret:
+                    self._error("App ID / App Secret 不能为空", 400)
+                    return
+                try:
+                    result = discover_receivers(app_id, app_secret, base_url)
+                except Exception as error:
+                    self._json({"ok": False, "error": str(error), "candidates": [], "warnings": []}, 400)
+                    return
+                self._json(result)
             else:
                 self._error("not found", 404)
         except ValueError as error:

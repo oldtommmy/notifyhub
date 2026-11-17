@@ -127,6 +127,7 @@
     backdrop-filter: blur(22px) saturate(1.15);
   }
   .card + .card { margin-top: 18px; }
+  .card:has(.glass-select-menu:not([hidden])) { position: relative; z-index: 40; }
   .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 16px; }
   .card-head h2 { margin: 0 0 4px; font-size: 15px; letter-spacing: -.01em; }
   .card-head p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
@@ -210,6 +211,42 @@
   .btn-small { padding: 7px 10px; font-size: 11.5px; }
   .hint { margin-top: 12px; color: var(--muted); font-size: 11.5px; line-height: 1.7; }
   .hint code { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--input-bg); padding: 1px 5px; border-radius: 5px; }
+  .glass-select { position: relative; }
+  .glass-select-trigger {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    border: 1px solid var(--input-border); background: var(--input-bg); color: var(--text);
+    border-radius: 11px; padding: 10px 12px; font: inherit; font-size: 13px; text-align: left;
+    outline: none; box-shadow: var(--input-inset); cursor: pointer;
+    transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+  .glass-select-trigger:hover { border-color: var(--line-strong); }
+  .glass-select-trigger:focus-visible {
+    border-color: rgba(79, 110, 247, .55); box-shadow: 0 0 0 4px rgba(79, 110, 247, .13); background: var(--card-solid);
+  }
+  .glass-select-chevron { color: var(--muted); font-size: 11px; transition: transform .2s ease; }
+  .glass-select-trigger[aria-expanded="true"] .glass-select-chevron { transform: rotate(180deg); }
+  .glass-select-menu {
+    position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; right: 0; padding: 6px;
+    border-radius: 14px; border: 1px solid var(--card-border); background: var(--card-solid);
+    box-shadow: var(--card-inset), 0 18px 40px -24px rgba(30, 35, 60, .42);
+    backdrop-filter: blur(20px) saturate(1.15); max-height: 260px; overflow: auto;
+  }
+  .glass-select-option {
+    display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 8px 10px;
+    border: 0; border-radius: 10px; background: transparent; color: var(--text);
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .glass-select-option:hover, .glass-select-option[aria-selected="true"] { background: var(--glass-thumb); }
+  .glass-select-option strong { font-size: 12px; font-weight: 750; }
+  .glass-select-option small { color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+  .inline-action {
+    margin-left: 6px; padding: 0; border: 0; background: transparent; color: var(--accent);
+    font: inherit; font-size: 10.5px; font-weight: 700; cursor: pointer;
+  }
+  .inline-action:hover { text-decoration: underline; }
+  .inline-action:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+  .field-note { color: var(--muted); font-size: 11px; line-height: 1.65; }
+  .field-note:empty { display: none; }
   .empty { padding: 18px; text-align: center; color: var(--muted); font-size: 12px; border: 1px dashed var(--line-strong); border-radius: 12px; }
   .glass-segments {
     position: relative; display: flex; gap: 2px; padding: 4px; margin-bottom: 14px;
@@ -341,20 +378,22 @@
             <span>App Secret</span>
             <input id="appSecret" type="password" placeholder="只保存在本机配置里" autocomplete="off">
           </label>
-          <label class="field">
+          <div class="field">
             <span>接收人类型</span>
-            <select id="receiveType">
-              <option value="open_id">open_id</option>
-              <option value="email">邮箱</option>
-              <option value="chat_id">chat_id</option>
-              <option value="user_id">user_id</option>
-              <option value="union_id">union_id</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>接收人</span>
-            <input id="receiveId" type="text" placeholder="ou_..." autocomplete="off" spellcheck="false">
-          </label>
+            <div class="glass-select" id="receiveTypeSelect">
+              <button type="button" class="glass-select-trigger" id="receiveTypeTrigger" aria-haspopup="listbox" aria-expanded="false">
+                <span id="receiveTypeLabel">open_id</span>
+                <span class="glass-select-chevron">⌄</span>
+              </button>
+              <div class="glass-select-menu" id="receiveTypeMenu" role="listbox" hidden></div>
+            </div>
+          </div>
+          <div class="field">
+            <span>接收人 <button type="button" class="inline-action" id="discoverBtn">自动获取</button></span>
+            <input id="receiveId" type="text" placeholder="ou_..." autocomplete="off" spellcheck="false" aria-label="接收人 ID">
+          </div>
+          <div class="field-note span-2" id="receiverNote">open_id 默认发给应用所有者（你自己）。</div>
+          <div class="field-note span-2" id="receiverStatus"></div>
         </div>
         <div class="row-actions">
           <button class="btn" id="testBtn">发送测试通知</button>
@@ -450,6 +489,35 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 let state = { config: null, dirty: false, toastTimer: null };
 let previewGoalValue = "active";
+let receiveTypeValue = "open_id";
+const RECEIVE_TYPES = [
+  { value: "open_id", label: "open_id", hint: "应用所有者 / 用户本人，默认发给你自己" },
+  { value: "email", label: "邮箱", hint: "发给租户内该邮箱对应的用户" },
+  { value: "chat_id", label: "chat_id", hint: "发给机器人所在的群聊" },
+  { value: "user_id", label: "user_id", hint: "租户内的用户 ID，依赖企业配置" },
+  { value: "union_id", label: "union_id", hint: "跨应用用户 ID，一般不需要" },
+];
+const RECEIVE_NOTES = {
+  open_id: "open_id 是用户在该应用下的唯一 ID；自动获取时会填入应用所有者（你自己）。",
+  email: "邮箱会发给租户内对应的用户；不是飞书账号的邮箱可能解析失败。",
+  chat_id: "chat_id 是机器人所在群聊的 ID；自动获取会列出机器人已加入的群。",
+  user_id: "user_id 是租户内的用户 ID，依赖企业配置。",
+  union_id: "union_id 是跨应用用户 ID，通常不需要手动使用。",
+};
+const RECEIVE_PLACEHOLDERS = {
+  open_id: "ou_...",
+  email: "you@company.com",
+  chat_id: "oc_...",
+  user_id: "user_id",
+  union_id: "on_...",
+};
+const RECEIVE_TARGETS = {
+  open_id: "你（应用所有者）",
+  email: "该邮箱对应的租户用户",
+  chat_id: "机器人所在群聊",
+  user_id: "租户用户",
+  union_id: "跨应用用户",
+};
 
 function toast(message, kind = "ok") {
   const element = $("toast");
@@ -484,8 +552,92 @@ function markDirty() {
 }
 
 function receivePlaceholder() {
-  const placeholders = { open_id: "ou_...", email: "you@company.com", chat_id: "oc_...", user_id: "user_id", union_id: "on_..." };
-  $("receiveId").placeholder = placeholders[$("receiveType").value] || "";
+  $("receiveId").placeholder = RECEIVE_PLACEHOLDERS[receiveTypeValue] || "";
+}
+
+function renderReceiveTypes() {
+  const menu = $("receiveTypeMenu");
+  menu.innerHTML = "";
+  for (const item of RECEIVE_TYPES) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "glass-select-option";
+    option.dataset.value = item.value;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", item.value === receiveTypeValue ? "true" : "false");
+    option.innerHTML = `<strong>${esc(item.label)}</strong><small>${esc(item.hint)}</small>`;
+    option.addEventListener("click", () => {
+      setReceiveType(item.value);
+      toggleReceiveTypeMenu(false);
+      markDirty();
+    });
+    menu.append(option);
+  }
+}
+
+function setReceiveType(value) {
+  receiveTypeValue = value;
+  const item = RECEIVE_TYPES.find((entry) => entry.value === value) || RECEIVE_TYPES[0];
+  $("receiveTypeLabel").textContent = item.label;
+  for (const option of document.querySelectorAll("#receiveTypeMenu .glass-select-option")) {
+    option.setAttribute("aria-selected", option.dataset.value === value ? "true" : "false");
+  }
+  $("receiverNote").textContent = RECEIVE_NOTES[value] || "";
+  receivePlaceholder();
+}
+
+function toggleReceiveTypeMenu(force) {
+  const menu = $("receiveTypeMenu");
+  const trigger = $("receiveTypeTrigger");
+  const open = typeof force === "boolean" ? force : menu.hidden;
+  menu.hidden = !open;
+  trigger.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+async function discoverReceiver(quiet = false) {
+  const appId = $("appId").value.trim();
+  const appSecret = $("appSecret").value.trim();
+  const status = $("receiverStatus");
+  if (!appId || !appSecret) {
+    status.textContent = "先填写 App ID 和 App Secret。";
+    if (!quiet) toast("先填写 App ID 和 App Secret", "error");
+    return;
+  }
+
+  const button = $("discoverBtn");
+  button.disabled = true;
+  button.textContent = "获取中…";
+  status.textContent = "正在读取应用所有者和机器人所在群…";
+  try {
+    const baseUrl = state.config?.channels?.feishu_app?.base_url || "https://open.feishu.cn";
+    const data = await api("/api/feishu/receivers", {
+      method: "POST",
+      body: JSON.stringify({ app_id: appId, app_secret: appSecret, base_url: baseUrl }),
+    });
+    const candidates = data.candidates || [];
+    const candidate =
+      candidates.find((item) => item.type === "open_id") ||
+      candidates.find((item) => item.type === "email") ||
+      candidates[0];
+    if (!candidate) {
+      status.textContent = (data.warnings || []).join("；") || "未获取到接收人，请手动填写。";
+      if (!quiet) toast("未获取到接收人，请手动填写", "error");
+      return;
+    }
+    setReceiveType(candidate.type);
+    $("receiveId").value = candidate.value;
+    const label = candidate.label || candidate.detail || candidate.type;
+    const warnings = (data.warnings || []).length ? `；${data.warnings.join("；")}` : "";
+    status.textContent = `已自动获取：${label} · ${candidate.detail || candidate.type}（记得保存）${warnings}`;
+    markDirty();
+    if (!quiet) toast("已自动获取接收人，记得保存。");
+  } catch (error) {
+    status.textContent = error.message;
+    if (!quiet) toast(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "自动获取";
+  }
 }
 
 function renderConfig() {
@@ -496,8 +648,13 @@ function renderConfig() {
 
   $("appId").value = app.app_id || "";
   $("appSecret").value = app.app_secret || "";
-  $("receiveType").value = app.receive_id_type || "open_id";
+  receiveTypeValue = app.receive_id_type || "open_id";
   $("receiveId").value = app.receive_id || "";
+  renderReceiveTypes();
+  setReceiveType(receiveTypeValue);
+  $("receiverStatus").textContent = app.receive_id
+    ? `当前接收人：${RECEIVE_TARGETS[app.receive_id_type] || app.receive_id_type} · ${app.receive_id}。点「自动获取」可重新读取。`
+    : "";
   $("goalRounds").checked = codex.notify_goal_rounds !== false;
   $("recentPrompt").checked = codex.include_recent_prompt !== false;
   $("lastMessage").checked = codex.include_last_message !== false;
@@ -520,7 +677,7 @@ function collectConfig() {
     enabled: Boolean(appId && appSecret && receiveId),
     app_id: appId,
     app_secret: appSecret,
-    receive_id_type: $("receiveType").value,
+    receive_id_type: receiveTypeValue,
     receive_id: receiveId,
     message_type: "card",
   };
@@ -541,6 +698,10 @@ async function persist({ silent = false } = {}) {
     state.config = data.config;
     state.dirty = false;
     updateDirty();
+    const savedApp = data.config.channels?.feishu_app || {};
+    if (savedApp.receive_id) {
+      $("receiverStatus").textContent = `当前接收人：${RECEIVE_TARGETS[savedApp.receive_id_type] || savedApp.receive_id_type} · ${savedApp.receive_id}。点「自动获取」可重新读取。`;
+    }
     if (!silent) toast("配置已保存");
     await Promise.all([loadStatus(), loadQuota()]);
     await loadPreview();
@@ -557,6 +718,10 @@ async function loadConfig() {
   const data = await api("/api/config");
   state.config = data.config;
   renderConfig();
+  const app = data.config.channels?.feishu_app || {};
+  if (app.app_id && app.app_secret && !app.receive_id) {
+    setTimeout(() => discoverReceiver(true), 400);
+  }
 }
 
 async function loadStatus() {
@@ -884,7 +1049,14 @@ function bindEvents() {
   $("installDshBtn").addEventListener("click", installDsh);
   $("quotaRefresh").addEventListener("click", () => loadQuota(true));
   $("themeBtn").addEventListener("click", cycleTheme);
-  $("receiveType").addEventListener("change", receivePlaceholder);
+  $("receiveTypeTrigger").addEventListener("click", () => toggleReceiveTypeMenu());
+  $("discoverBtn").addEventListener("click", () => discoverReceiver(false));
+  document.addEventListener("click", (event) => {
+    if (!$("receiveTypeSelect").contains(event.target)) toggleReceiveTypeMenu(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") toggleReceiveTypeMenu(false);
+  });
 
   const previewTabs = [...document.querySelectorAll("#previewGoal [role=tab]")];
   const selectPreviewGoal = (tab) => {

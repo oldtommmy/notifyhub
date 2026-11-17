@@ -24,6 +24,7 @@ python3 "$SKILL_ROOT/scripts/notifyhub.py" --help
 - Caches quota for 10 minutes so most turns do not start an app-server.
 - Merges `~/.codex/hooks.json` without touching the existing `notify` config.
 - Ships a `dsh-notifyhub` bundle plugin that listens to `session/event` `turn/end` in DeepSeek Harness.
+- Auto-discovers the receiver from App ID/Secret: app owner `open_id` first, then owner email or a bot chat.
 - Provides a local GUI for credentials, four notification switches, quota, preview, and DSH install.
 
 ## Prerequisites
@@ -34,6 +35,8 @@ python3 "$SKILL_ROOT/scripts/notifyhub.py" --help
 - A Feishu self-built app with:
   - Bot capability enabled.
   - Permission `im:message:send_as_bot`.
+  - Optional `application:application:readonly` for owner `open_id` auto-discovery.
+  - Optional `im:chat:readonly` for listing bot chats.
   - The app published to the tenant.
 - One receive target: the user's `open_id` (recommended), a `chat_id`, or an email that resolves to a tenant user.
 
@@ -70,6 +73,8 @@ python3 "$SKILL_ROOT/scripts/feishu_probe.py" \
 - An email that belongs to the tenant.
 
 Never guess or fabricate an `open_id`. Do not print the App Secret.
+
+In the GUI, you do not need to choose the receiver type manually: fill App ID and App Secret, then click 「自动获取」. It fills the app owner `open_id` (you) by default, and the type menu explains where each option sends: `open_id` → app owner/you, `email` → tenant user, `chat_id` → bot group, `user_id`/`union_id` → tenant/cross-app user ids. If discovery is blocked by permissions, the fields stay editable for a manual fallback.
 
 Verify delivery before configuring:
 
@@ -168,7 +173,7 @@ python3 "$SKILL_ROOT/scripts/notifyhub.py" gui
 
 The GUI binds to `127.0.0.1`, generates a random access token, and exposes only:
 
-- Feishu app credentials and receive target.
+- Feishu app credentials and receive target, with automatic owner/chat discovery.
 - Goal-round notifications, recent-prompt excerpt, last-message excerpt, remaining-quota display.
 - Current quota with refresh.
 - Test send, Codex hook install, and DSH plugin install.

@@ -13,6 +13,7 @@ Codex / DeepSeek Harness 完成通知 · 飞书私聊 · Agent Skill
 - 飞书 Card 2.0 卡片：状态标题、会话名、最近提问、模型、剩余额度、Goal
 - 最后一条 assistant 消息按 markdown 渲染（粗体、列表、行内代码、代码块、链接）
 - 剩余额度来自 Codex `account/rateLimits/read`，带 10 分钟缓存
+- 接收人自动发现：App ID/Secret 自动读取应用所有者 open_id，类型选项说明发给谁
 - 本地 Web GUI：凭证、四个通知开关、额度、测试发送、DSH 安装、卡片预览
 - 安装 / 合并 `~/.codex/hooks.json`，不修改已有的 `notify` 配置
 
@@ -76,6 +77,8 @@ GUI：
 ```bash
 python3 "$SKILL_ROOT/scripts/notifyhub.py" gui
 ```
+
+接收人类型和接收人不需要手填：填 App ID / App Secret 后点「自动获取」，默认读取应用所有者 `open_id`（你自己），再回退到所有者邮箱或机器人所在群。类型菜单会说明每个选项发给谁。
 
 ## 验证
 

@@ -57,6 +57,39 @@ The recent prompt is read from `~/.codex/history.jsonl` by `session_id`. If hist
 
 Quota comes from Codex app-server `account/rateLimits/read`. It is cached at `~/.local/state/notifyhub/quota.json` for 10 minutes.
 
+## DeepSeek Harness notifications
+
+```json
+{
+  "dsh": {
+    "enabled": true,
+    "include_last_message": true,
+    "include_recent_prompt": true,
+    "include_subagents": false,
+    "include_session_id": false,
+    "max_message_chars": 600,
+    "max_prompt_chars": 160
+  }
+}
+```
+
+- `include_subagents` — also notify sessions spawned by subagents. Off by default.
+- `include_last_message` / `include_recent_prompt` — same meaning as the Codex fields.
+- `max_*_chars` — truncation limits for the notification body.
+
+The dsh plugin is installed separately; see `references/dsh.md`.
+
+## Receiver discovery
+
+`channels.feishu_app.receive_id_type` / `receive_id` are normally filled by the GUI's 「自动获取」 action. It resolves the app owner's `open_id` (you), with the owner email and bot chats as fallbacks. The type menu explains each target:
+
+- `open_id` — app owner / the user themselves.
+- `email` — tenant user by email.
+- `chat_id` — group chat containing the bot.
+- `user_id` / `union_id` — tenant / cross-app user ids.
+
+Auto-discovery needs `application:application:readonly`; chat discovery additionally needs `im:chat:readonly`. If either is missing, the GUI shows a warning and the fields remain editable.
+
 ## Advanced channels
 
 ### Custom bot webhook

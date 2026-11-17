@@ -48,6 +48,17 @@ python3 "$SKILL_ROOT/scripts/feishu_probe.py" --app-id cli_xxxxxxxx --owner
 
 This calls the app-info endpoint and prints `data.app.owner.owner_id`. It does not send a message. It requires `application:application:readonly`; if permission is missing, use one of the alternatives below.
 
+### GUI auto-discovery
+
+The GUI does this for the user: fill App ID and App Secret, then click 「自动获取」. It uses the same app-info endpoint, prefers the owner `open_id`, then the owner email, then a bot chat from `im/v1/chats` (requires `im:chat:readonly`). The receiver-type menu explains where each type sends:
+
+- `open_id` — the app owner, i.e. you by default.
+- `email` — the tenant user with that email.
+- `chat_id` — a group chat that contains the bot.
+- `user_id` / `union_id` — tenant / cross-app user ids; rarely needed.
+
+If discovery fails, the fields remain editable for a manual fallback.
+
 ### Alternatives
 
 - Feishu developer console → app → member/owner info.
