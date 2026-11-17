@@ -4,6 +4,11 @@ DeepSeek Harness (`dsh`) bundle plugin for notifyhub. It listens to the persiste
 `session/event` stream, and on `turn/end` sends the session metadata, recent user
 prompt, and last assistant message to the notifyhub CLI (`notifyhub hook dsh`).
 
+The payload contains the session title, the last human user message, the last
+assistant `text` block, and the model. Reasoning blocks, tool calls, and synthetic
+context messages (`runtime-context`, `time-context`, `skill-catalog`,
+`model-selection`, `user-approval`) are not included.
+
 ## Install
 
 ```bash

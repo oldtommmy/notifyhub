@@ -93,6 +93,14 @@ The plugin forwards every turn, including subagent turns. notifyhub's
 a card; the adapter maps the status to a card title, and the `dsh` section of the
 config controls the prompt/message excerpts.
 
+The card body is built from assistant `text` blocks only: `reasoning` and
+tool-call blocks never reach the card. `recent_prompt` uses the last message whose
+`source.kind` is `user`; synthetic messages (`runtime-context`, `time-context`,
+`skill-catalog`, `model-selection`, `user-approval`) are ignored. The title comes
+from the latest `session/title` event, falling back to the first real user
+message. The model comes from `request/header`'s `header.config.model`, or from
+`model/selection`.
+
 ## Configuration
 
 The plugin uses the same `~/.config/notifyhub/config.json` as Codex. Relevant

@@ -48,7 +48,13 @@ function messageText(message) {
     return content
       .map((part) => {
         if (typeof part === "string") return part;
-        return part?.text ?? part?.content ?? "";
+        if (!part || typeof part !== "object") return "";
+        // Only user-visible text. Reasoning, tool calls, and images must never
+        // reach the notification body.
+        if (part.type !== "text" && part.type !== "input_text" && part.type !== "output_text") {
+          return "";
+        }
+        return part.text ?? part.content ?? "";
       })
       .filter(Boolean)
       .join("\n")
@@ -66,10 +72,27 @@ function messagesOf(session) {
   }
 }
 
+function sessionTitle(session) {
+  try {
+    return typeof session?.title === "string" ? session.title.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+function isRealUserMessage(message) {
+  const role = String(message?.role || "").toLowerCase();
+  if (role !== "user" && role !== "human") return false;
+  const source = message?.source;
+  if (source && typeof source === "object" && typeof source.kind === "string" && source.kind !== "user") {
+    return false;
+  }
+  return true;
+}
+
 function firstUserText(messages) {
   for (const message of messages) {
-    const role = String(message?.role || "").toLowerCase();
-    if (role !== "user" && role !== "human") continue;
+    if (!isRealUserMessage(message)) continue;
     const text = messageText(message);
     if (text) return text;
   }
@@ -79,8 +102,7 @@ function firstUserText(messages) {
 function lastUserText(messages) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    const role = String(message?.role || "").toLowerCase();
-    if (role !== "user" && role !== "human") continue;
+    if (!isRealUserMessage(message)) continue;
     const text = messageText(message);
     if (text) return text;
   }
@@ -107,7 +129,10 @@ function modelText(value) {
 }
 
 function modelFrom(data) {
+  const config = data?.header?.config;
   return (
+    modelText(config?.model) ||
+    modelText(config) ||
     modelText(data?.model) ||
     modelText(data?.modelId) ||
     modelText(data?.modelSlug) ||
@@ -122,6 +147,7 @@ export function apply(ctx, config = {}) {
   const command = resolveCommand(config);
   const seen = new Set();
   const models = new Map();
+  const titles = new Map();
   log(`loaded; command=${command.join(" ")}`);
 
   function send(payload) {
@@ -148,9 +174,15 @@ export function apply(ctx, config = {}) {
   ctx.on("session/event", (session, event) => {
     if (!session || !event) return;
 
-    if (event.type === "request/header") {
+    if (event.type === "request/header" || event.type === "model/selection") {
       const model = modelFrom(event.data);
       if (model) models.set(session.id, model);
+      return;
+    }
+
+    if (event.type === "session/title") {
+      const title = String(event.data?.title || "").trim();
+      if (title) titles.set(session.id, title);
       return;
     }
 
@@ -171,7 +203,12 @@ export function apply(ctx, config = {}) {
 
     const messages = messagesOf(session);
     const cwd = header.cwd || "";
-    const title = firstUserText(messages) || path.basename(cwd) || String(session.id || "");
+    const title =
+      titles.get(session.id) ||
+      sessionTitle(session) ||
+      firstUserText(messages) ||
+      path.basename(cwd) ||
+      String(session.id || "");
 
     send({
       hook_event_name: "SessionComplete",
