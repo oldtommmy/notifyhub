@@ -46,7 +46,7 @@ try {
   };
 
   handle(session, { type: "request/header", data: { model: { model: "deepseek-chat" } }, seq: 1, time: 1 });
-  handle(session, { type: "turn/end", data: { kind: "completed" }, seq: 2, time: 2 });
+  handle(session, { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } }, seq: 2, time: 2 });
 
   const payload = await waitForJson(output);
   assert(payload.session_id === "session-1", "session id mismatch");
@@ -65,7 +65,7 @@ try {
       header: { cwd: "/tmp/demo", parentSession: "session-1" },
       deriveMessages: () => [],
     },
-    { type: "turn/end", data: { kind: "completed" }, seq: 3, time: 3 },
+    { type: "turn/end", data: { turn: 1, reason: { kind: "completed" } }, seq: 3, time: 3 },
   );
   await new Promise((resolve) => setTimeout(resolve, 300));
   const after = await fs.readFile(output, "utf8");

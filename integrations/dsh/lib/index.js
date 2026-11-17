@@ -155,7 +155,8 @@ export function apply(ctx, config = {}) {
     }
 
     if (event.type !== "turn/end") return;
-    log(`turn/end session=${session.id} status=${event.data?.kind || "completed"}`);
+    const status = event.data?.reason?.kind || event.data?.kind || "completed";
+    log(`turn/end session=${session.id} status=${status}`);
 
     const header = session.header || {};
     const origin =
@@ -185,7 +186,7 @@ export function apply(ctx, config = {}) {
       model: models.get(session.id) || "",
       recent_prompt: lastUserText(messages),
       last_assistant_message: lastAssistantText(messages),
-      status: event.data?.kind || "completed",
+      status,
       completed_at: event.time || 0,
       seq: event.seq ?? 0,
       origin,
