@@ -66,7 +66,12 @@ def cmd_hook(args):
         return 0
 
     if notification is None:
-        logger.info("event ignored: %s", payload.get("hook_event_name"))
+        origin = payload.get("origin")
+        logger.info(
+            "event ignored: %s%s",
+            payload.get("hook_event_name"),
+            f" origin={origin}" if origin else "",
+        )
         return 0
 
     if args.dry_run:
@@ -82,12 +87,12 @@ def cmd_hook(args):
 
 def cmd_test(args):
     config = load_config(args.config)
-    logger = _logger(config, args.verbose)
 
     if args.dry_run:
         print(render_text(SAMPLE_NOTIFICATION))
         return 0
 
+    logger = _logger(config, args.verbose)
     results = dispatch(SAMPLE_NOTIFICATION, config, logger, force=True, only_channel=args.channel)
     for name, ok, detail in results:
         print(f"{name}: {'ok' if ok else 'failed'}{' - ' + detail if detail else ''}")

@@ -1,9 +1,10 @@
 import json
 import os
-import shlex
 import shutil
 import subprocess
 from pathlib import Path
+
+from .runtime import format_command as _format_command
 
 PROFILES = ("desktop", "web")
 
@@ -44,10 +45,8 @@ def build_command(profile="web"):
     return [dsh, "plugin", "--profile", profile, "add", f"link:{link_path}"]
 
 
-def format_command(command):
-    if os.name == "nt":
-        return subprocess.list2cmdline(command)
-    return " ".join(shlex.quote(part) for part in command)
+def format_command(command, windows=None):
+    return _format_command(command, windows=windows)
 
 
 def profile_installed(profile):

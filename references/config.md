@@ -73,7 +73,7 @@ Quota comes from Codex app-server `account/rateLimits/read`. It is cached at `~/
 }
 ```
 
-- `include_subagents` — also notify sessions spawned by subagents. Off by default.
+- `include_subagents` — notify sessions spawned by subagents. Off by default. This is the only switch: the dsh plugin forwards every `turn/end` with `origin`, and the notifyhub adapter drops subagent sessions here unless enabled.
 - `include_last_message` / `include_recent_prompt` — same meaning as the Codex fields.
 - `max_*_chars` — truncation limits for the notification body.
 

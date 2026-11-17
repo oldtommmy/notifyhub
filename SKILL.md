@@ -159,7 +159,7 @@ python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile desktop
 python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile web
 ```
 
-Restart the matching host: quit and reopen DeepSeek Harness.app, or restart `dsh web`. The plugin listens to the persisted `session/event` stream, and on `turn/end` sends the session title, last user prompt, last assistant message, and model to the same notifyhub configuration. Subagent sessions are skipped by default.
+Restart the matching host: quit and reopen DeepSeek Harness.app, or restart `dsh web`. The plugin listens to the persisted `session/event` stream, and on `turn/end` sends the session title, last user prompt, last assistant message, and model to the same notifyhub configuration. Subagent sessions are filtered by notifyhub (`dsh.include_subagents`, off by default).
 
 The desktop app's profile is managed by the app. Its official install path is **Settings → Plugins**; `install-dsh --profile desktop` writes the profile directly and works after a restart, but an app update may reset it. On Windows, use `python` instead of `python3`; if the plugin cannot find Python, set the plugin row's `config.command` to `["py", "-3", "C:/.../notifyhub.py", "hook", "dsh"]`.
 

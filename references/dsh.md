@@ -86,10 +86,12 @@ On `turn/end`, the host plugin reads:
 - the latest `request/header` model when available
 - `turn/end`'s `kind`: `completed`, `error`, `aborted`, `blocked`,
   `max-tokens`, or `interrupted`
+- `origin`: `main` or `subagent`, derived from `parentSession` / `delegationDepth`
 
-It skips subagent sessions by default. The notifyhub adapter maps the status to
-a card title and the `dsh` section of the config controls the prompt/message
-excerpts.
+The plugin forwards every turn, including subagent turns. notifyhub's
+`dsh.include_subagents` (off by default) decides whether a subagent turn produces
+a card; the adapter maps the status to a card title, and the `dsh` section of the
+config controls the prompt/message excerpts.
 
 ## Configuration
 
@@ -109,6 +111,9 @@ section:
   }
 }
 ```
+
+`include_subagents` is the only subagent switch. The plugin does not filter
+subagents itself; the adapter drops them unless this is `true`.
 
 To override the launcher (for example, when the plugin is installed outside the
 skill), add a config block to the patch row:
@@ -154,8 +159,9 @@ For the desktop app, the plugin log should show `loaded`, then `turn/end`, then
 | No card after a dsh turn | The bundle needs a restart: stop and start `dsh web` / the desktop app. |
 | Plugin not in `--dump-config` (web) | The `link:` path is wrong, or the bundle was not mounted. Re-run `install-dsh` and check `dsh --profile web --dump-config`. |
 | `loaded` but no `turn/end` | The host version changed its session event. Check `~/.dsh/sessions/**/session*.jsonl.zstd` for `turn/end` and report the dsh version. |
-| `turn/end` but no `send` | The session was treated as a subagent. Set `"include_subagents": true` to include it. |
-| `send` but no Feishu card | Check `~/.local/state/notifyhub/notifyhub.log` and the `feishu_app` credentials. |
+| `turn/end` but no `send` | `config.enabled` is `false` in the plugin row, or the host changed its session event. Check the plugin log and the dsh version. |
+| `send` but no card and no `notifyhub.log` entry | The adapter dropped a subagent session. Set `dsh.include_subagents: true` in `~/.config/notifyhub/config.json`. |
+| `send` but no card and `notifyhub.log` has an error | Check the `feishu_app` credentials and network; see the Feishu troubleshooting table. |
 | Windows spawn failed / Python not found | Set the plugin `config.command` to `["py", "-3", "C:/.../notifyhub.py", "hook", "dsh"]`, or put Python on `PATH`. |
 | Duplicate card | The plugin dedupes by `session.id + seq`; check for multiple installed copies in the profile. |
 | Old card layout | Restart the dsh host; the plugin calls the current notifyhub code. |

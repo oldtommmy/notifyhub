@@ -161,10 +161,6 @@ export function apply(ctx, config = {}) {
     const header = session.header || {};
     const origin =
       header.parentSession || (header.delegationDepth || 0) > 0 ? "subagent" : "main";
-    if (origin === "subagent" && config.includeSubagents !== true) {
-      log(`skip subagent session=${session.id}`);
-      return;
-    }
 
     const key = `${session.id}:${event.seq ?? event.time ?? ""}`;
     if (seen.has(key)) return;
