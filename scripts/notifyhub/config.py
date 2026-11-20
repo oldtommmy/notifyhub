@@ -8,7 +8,9 @@ DEFAULT_CONFIG = {
     "version": 1,
     "channels": {
         "feishu": {
-            "enabled": True,
+            # Off by default: an enabled channel with an empty webhook_url logs
+            # an ERROR on every single notification, which buries real failures.
+            "enabled": False,
             "webhook_url": "",
             "secret": "",
             "message_type": "card",
@@ -79,6 +81,41 @@ DEFAULT_CONFIG = {
     },
     "state_path": "~/.local/state/notifyhub/state.json",
     "log_path": "~/.local/state/notifyhub/notifyhub.log",
+    "outbox": {
+        # Failed deliveries are persisted here and replayed by
+        # `notifyhub flush`, so a dead proxy does not silently lose them.
+        "enabled": True,
+        "path": "~/.local/state/notifyhub/outbox.json",
+        "max_items": 200,
+        "max_age_hours": 72,
+        "max_attempts": 8,
+    },
+    "bridge": {
+        # Inbound Feishu messages -> local headless agent. Off by default: it
+        # grants anyone in allow_open_ids the ability to run commands.
+        "enabled": False,
+        # MUST be filled. Empty means "deny everyone", never "allow everyone".
+        "allow_open_ids": [],
+        "default_agent": "dsh",
+        # Workspace the agent runs in. Empty means the config's own directory.
+        "workspace": "~",
+        # Nobody is at the keyboard, so approvals cannot be interactive.
+        "approval_policy": "never",
+        "permission_mode": "workspace-write",
+        "timeout_seconds": 1800,
+        "max_message_chars": 3000,
+        # Reject a new task while the same session is still running.
+        "reject_when_busy": True,
+        "sessions_path": "~/.local/state/notifyhub/bridge_sessions.json",
+        "reply": {
+            "ack": True,
+            "on_start": True,
+            "on_finish": True,
+        },
+        # Optional command prefixes, e.g. {"codex": "@codex ", "dsh": "@dsh "}.
+        # A bare message uses default_agent.
+        "prefixes": {"dsh": "", "codex": ""},
+    },
 }
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")

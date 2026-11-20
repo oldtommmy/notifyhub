@@ -17,6 +17,8 @@ Codex / DeepSeek Harness / Claude Code / Command Code 完成通知 · 飞书私�
 - 接收人自动发现：App ID/Secret 自动读取应用所有者 open_id，类型选项说明发给谁
 - 本地 Web GUI：凭证、四个通知开关、额度、测试发送、DSH 安装、卡片预览
 - 安装 / 合并 `~/.codex/hooks.json`，不修改已有的 `notify` 配置
+- 发件箱：发送失败（例如梯子挂掉）不会丢消息，恢复后自动补发
+- 飞书远程续聊：手机上发消息，本机续聊 dsh / codex 会话并回结果（长连接，无需公网 IP）
 
 ## 让本地 Agent 安装（推荐）
 
@@ -116,6 +118,49 @@ sh scripts/selftest.sh
 python3 scripts/notifyhub.py doctor
 ```
 
+## 发送失败与发件箱
+
+网络抖动（代理挂掉、DNS 失败、握手超时）导致的所有渠道都失败时，通知会写入
+`~/.local/state/notifyhub/outbox.json` 而不是被丢弃。之后任意一次 hook 成功发送时会
+自动补发最多 3 条；也可以手动重放：
+
+```bash
+python3 scripts/notifyhub.py flush --status   # 查看积压
+python3 scripts/notifyhub.py flush            # 重放
+python3 scripts/notifyhub.py flush --retry-dead   # 修好权限后重试已放弃的条目
+python3 scripts/notifyhub.py flush --clear    # 清空
+```
+
+重试策略区分两类错误：
+
+- **可重试**：网络错误、超时、5xx/429 → 指数退避（60s 起，最长 1 小时，默认 8 次）
+- **不可重试**：凭据错误 `99991663`、缺权限 `99991672`、非法 `receive_id` `230001`
+  等 → 立即标记放弃，避免无谓重试把真正原因淹掉
+
+`doctor` 会显示积压条数。配置项见 [references/config.md](references/config.md) 的
+「发件箱」一节。
+
+## 飞书远程续聊（可选）
+
+在手机上给飞书机器人发一条消息，本机就续聊一个已有的 `dsh` / `codex` 会话，结果回飞书。
+
+用的是飞书**长连接**（本机主动出站连飞书服务器），所以**不需要公网 IP、不需要内网穿透、
+不需要 VPS 跳板机**，在 Tailscale 后面、家用宽带 NAT 后面都能工作。
+
+```bash
+python3 -m pip install 'lark-oapi>=1.8'
+python3 scripts/notifyhub.py bridge owner    # 拿到你的 open_id
+# 写进 bridge.allow_open_ids，然后：
+python3 scripts/notifyhub.py bridge check
+python3 scripts/notifyhub.py bridge start
+```
+
+手机上：直接发消息 = 默认 agent 续聊；`@codex ...` 切换 agent；`/new` 开新会话；
+`/status` 看会话；`/help` 看帮助。
+
+> 这是一个远程命令执行入口。`allow_open_ids` **默认拒绝所有人**，留空谁也用不了。
+> 完整安全说明和已知限制见 [references/bridge.md](references/bridge.md)。
+
 ## UI
 
 界面视觉参考 [LeiBox](https://leibox.pantoria.cn) 的玻璃卡片与 Glass Tab Menu 交互；预览状态切换是一个紧凑的玻璃分段控件。没有直接捆绑 LeiBox 的 WebGL/TS 组件，页面保持零依赖。
@@ -125,6 +170,8 @@ python3 scripts/notifyhub.py doctor
 - [references/feishu-setup.md](references/feishu-setup.md)
 - [references/config.md](references/config.md)
 - [references/troubleshooting.md](references/troubleshooting.md)
+- [references/dsh.md](references/dsh.md)
+- [references/bridge.md](references/bridge.md)
 
 变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -134,7 +181,7 @@ python3 scripts/notifyhub.py doctor
 SKILL.md
 scripts/
   notifyhub.py          # CLI 入口
-  notifyhub/            # Python 包（adapter、飞书通道、GUI、额度）
+  notifyhub/            # Python 包（adapter、飞书通道、GUI、额度、发件箱）
   setup_config.py       # 安全写配置
   feishu_probe.py       # 凭据验证 / owner open_id / 测试发送
   selftest.sh           # 测试

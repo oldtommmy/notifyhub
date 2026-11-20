@@ -3,6 +3,7 @@ from datetime import datetime
 
 from .channels import get_sender
 from .config import resolve_path
+from .outbox import notification_from_dict, outbox_for
 from .state import StateStore
 
 
@@ -42,6 +43,21 @@ def _in_quiet_hours(config):
     return current >= start or current < end
 
 
+REQUIRED_FIELDS = {
+    "feishu": ("webhook_url",),
+    "feishu_app": ("app_id", "app_secret", "receive_id"),
+    "imessage": ("to",),
+}
+
+
+def _is_configured(name, settings):
+    """A channel must have every field it needs before it counts as enabled."""
+    required = REQUIRED_FIELDS.get(name)
+    if required is None:
+        return True
+    return all(settings.get(field) for field in required)
+
+
 def dispatch(notification, config, logger, force=False, only_channel=None):
     if not force and not _matches_project(notification, config.get("filters", {})):
         logger.info("filtered by project rules: %s", notification.cwd)
@@ -62,6 +78,15 @@ def dispatch(notification, config, logger, force=False, only_channel=None):
             continue
         if not settings.get("enabled"):
             continue
+        if not _is_configured(name, settings):
+            # Enabled but missing its required field. Log once at WARNING
+            # instead of raising an ERROR per notification: this is a config
+            # mistake, not a delivery failure, and it used to bury real ones.
+            logger.warning(
+                "%s is enabled but not configured; skipping (see notifyhub doctor)",
+                name,
+            )
+            continue
 
         try:
             sender = get_sender(name)
@@ -75,10 +100,70 @@ def dispatch(notification, config, logger, force=False, only_channel=None):
         results.append((name, True, ""))
 
     if not results:
+        # Nothing enabled: that is a config problem, not a delivery failure, so
+        # do not queue it. doctor reports enabled-but-unconfigured channels.
         logger.warning("no enabled channel configured")
 
-    if any(ok for _, ok, _ in results):
+    delivered = any(ok for _, ok, _ in results)
+    if delivered:
         state.mark(notification.dedupe_key)
         state.save()
+    elif results:
+        # Every enabled channel failed. Keep the notification so a dead proxy
+        # does not silently swallow it; `notifyhub flush` replays it later.
+        try:
+            outbox = outbox_for(config, logger)
+            entry = outbox.add(notification, results)
+            if entry is not None:
+                logger.warning(
+                    "queued for retry (outbox id=%s, %d pending): %s",
+                    entry["id"],
+                    len(outbox),
+                    entry["last_error"],
+                )
+        except Exception as error:  # never let the outbox break the hook
+            logger.error("failed to queue notification: %s", error)
 
     return results
+
+
+def replay_outbox(config, logger, limit=None):
+    """Retry queued notifications. Returns (delivered, failed, remaining)."""
+    outbox = outbox_for(config, logger)
+    pending = outbox.pending()
+    if limit is not None:
+        pending = pending[:limit]
+
+    delivered = 0
+    failed = 0
+    for entry in pending:
+        try:
+            notification = notification_from_dict(entry.get("notification") or {})
+        except (TypeError, ValueError) as error:
+            logger.error("outbox entry %s is unreadable, dropping: %s", entry.get("id"), error)
+            outbox.remove(entry.get("id"))
+            continue
+
+        channels = entry.get("channels") or []
+        results = dispatch(
+            notification,
+            config,
+            logger,
+            force=True,
+            only_channel=channels[0] if len(channels) == 1 else None,
+        )
+        if results and any(ok for _, ok, _ in results):
+            outbox.remove(entry.get("id"))
+            delivered += 1
+            logger.info("outbox replay delivered: %s", notification.status_text)
+        else:
+            detail = "; ".join(d for _, _, d in results) or "no channel available"
+            updated = outbox.record_failure(entry.get("id"), detail)
+            failed += 1
+            logger.warning(
+                "outbox replay failed (attempt %s): %s",
+                (updated or {}).get("attempts", "?"),
+                detail,
+            )
+
+    return delivered, failed, len(outbox)

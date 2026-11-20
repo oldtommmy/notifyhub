@@ -1,0 +1,345 @@
+"""Feishu -> local agent bridge.
+
+The security-critical parts live here so they can be tested without Feishu or a
+running agent: who is allowed to talk to this bridge, which agent and session a
+message maps to, and how concurrent runs are serialized.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import queue
+import threading
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from . import agents
+from .config import resolve_path
+
+
+class BridgeDenied(RuntimeError):
+    """Raised when a message is not allowed to reach an agent."""
+
+
+@dataclass
+class Task:
+    message_id: str
+    chat_id: str
+    sender_id: str
+    prompt: str
+    agent: str
+    created_at: float = field(default_factory=time.time)
+
+
+@dataclass
+class TaskResult:
+    task: Task
+    ok: bool
+    text: str = ""
+    session_id: str = ""
+    error: str = ""
+    duration_seconds: float = 0.0
+
+
+# ------------------------------------------------------------------ 命令解析
+
+HELP_TEXT = """notifyhub 远程续聊
+
+直接发消息 → 用默认 agent（{default}）续聊当前会话
+@dsh <内容> → 切到 dsh
+@codex <内容> → 切到 codex
+/new → 开一个新会话（忘掉上下文）
+/status → 查看当前会话和运行状态
+/help → 显示这条帮助"""
+
+
+def parse_command(text, config):
+    """Split a Feishu message into (agent, prompt) or a local command.
+
+    Returns (kind, payload) where kind is one of "agent", "new", "status",
+    "help".
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        raise BridgeDenied("空消息")
+
+    lowered = raw.lower()
+    if lowered in ("/help", "help", "？", "?"):
+        return "help", None
+    if lowered in ("/new", "new", "/reset"):
+        return "new", None
+    if lowered in ("/status", "status"):
+        return "status", None
+
+    bridge = config.get("bridge") or {}
+    prefixes = bridge.get("prefixes") or {}
+    for agent, prefix in prefixes.items():
+        if prefix and raw.lower().startswith(prefix.lower()):
+            prompt = raw[len(prefix) :].strip()
+            if not prompt:
+                raise BridgeDenied(f"{prefix} 后面没有内容")
+            if agent not in ("dsh", "codex"):
+                raise BridgeDenied(f"不支持的 agent: {agent}")
+            return "agent", (agent, prompt)
+
+    # Common shorthand even when no prefix is configured. Match on the first token
+    # so a trailing-space-only message ("@codex   ") is still recognised and
+    # rejected for having no prompt.
+    for agent in ("dsh", "codex"):
+        tag = f"@{agent}"
+        lowered_raw = raw.lower()
+        if lowered_raw == tag or lowered_raw.startswith(tag + " "):
+            prompt = raw[len(tag) :].strip()
+            if not prompt:
+                raise BridgeDenied(f"{tag} 后面没有内容")
+            return "agent", (agent, prompt)
+
+    default = str(bridge.get("default_agent") or "dsh")
+    if default not in ("dsh", "codex"):
+        raise BridgeDenied(f"default_agent 配置无效: {default}")
+    return "agent", (default, raw)
+
+
+def help_text(config):
+    default = str((config.get("bridge") or {}).get("default_agent") or "dsh")
+    return HELP_TEXT.format(default=default)
+
+
+# ------------------------------------------------------------------- 白名单
+
+
+def is_allowed(sender_id, config):
+    """Deny-by-default allowlist.
+
+    An empty allow_open_ids denies everyone. Failing closed matters here: the
+    bridge can run shell commands, so a half-configured install must not become
+    an open remote shell.
+    """
+    allowed = (config.get("bridge") or {}).get("allow_open_ids") or []
+    allowed = [str(item).strip() for item in allowed if str(item).strip()]
+    if not allowed:
+        return False
+    return str(sender_id or "").strip() in allowed
+
+
+# -------------------------------------------------------------- 会话映射表
+
+
+class SessionMap:
+    """chat_id -> {agent -> dsh/codex session id}."""
+
+    def __init__(self, path, logger=None):
+        self.path = resolve_path(str(path))
+        self.logger = logger
+        self._data = {}
+        self._generation = {}
+        self._lock = threading.Lock()
+        self._load()
+
+    def _load(self):
+        try:
+            with self.path.open(encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, ValueError):
+            return
+        if isinstance(data, dict):
+            self._data = data
+
+    def _save(self):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.path.with_name(self.path.name + ".tmp")
+            temp.write_text(
+                json.dumps(self._data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            os.replace(temp, self.path)
+            try:
+                os.chmod(self.path, 0o600)
+            except OSError:
+                pass
+        except OSError as error:
+            if self.logger:
+                self.logger.warning("cannot write session map %s: %s", self.path, error)
+
+    def get(self, chat_id, agent):
+        with self._lock:
+            return (self._data.get(chat_id) or {}).get(agent, "")
+
+    def set(self, chat_id, agent, session_id, generation=None):
+        """Record a session id.
+
+        When `generation` is given, the write is skipped if `/new` ran in the
+        meantime, so a run that finishes after a reset cannot resurrect the old
+        session.
+        """
+        if not session_id:
+            return
+        with self._lock:
+            if generation is not None and self._generation.get(chat_id, 0) != generation:
+                if self.logger:
+                    self.logger.info(
+                        "bridge: dropping stale session %s for chat %s (reset during run)",
+                        session_id,
+                        chat_id,
+                    )
+                return
+            self._data.setdefault(chat_id, {})[agent] = session_id
+            self._save()
+
+    def generation(self, chat_id):
+        with self._lock:
+            return self._generation.get(chat_id, 0)
+
+    def reset(self, chat_id):
+        with self._lock:
+            self._generation[chat_id] = self._generation.get(chat_id, 0) + 1
+            had = self._data.pop(chat_id, None)
+            if had is not None:
+                self._save()
+            return bool(had)
+
+    def all_sessions(self):
+        with self._lock:
+            return {chat: dict(per) for chat, per in self._data.items()}
+
+
+# ------------------------------------------------------------ 会话锁与串行
+
+
+class RunGuard:
+    """One agent run per session at a time."""
+
+    def __init__(self):
+        self._active = {}
+        self._lock = threading.Lock()
+
+    def busy(self, key):
+        with self._lock:
+            return key in self._active
+
+    def acquire(self, key, label=""):
+        with self._lock:
+            if key in self._active:
+                return False
+            self._active[key] = label
+            return True
+
+    def release(self, key):
+        with self._lock:
+            self._active.pop(key, None)
+
+    def active(self):
+        with self._lock:
+            return dict(self._active)
+
+
+# --------------------------------------------------------------- 任务队列
+
+
+class Worker:
+    """Serial worker: Feishu callbacks must never block on an agent run."""
+
+    def __init__(self, handler, logger=None, name="bridge-worker"):
+        self.handler = handler
+        self.logger = logger
+        self._queue = queue.Queue()
+        self._thread = threading.Thread(target=self._loop, name=name, daemon=True)
+        self._started = False
+        self._stopped = False
+
+    def start(self):
+        if not self._started:
+            self._thread.start()
+            self._started = True
+
+    def submit(self, item):
+        self._queue.put(item)
+
+    def stop(self):
+        self._stopped = True
+        self._queue.put(None)
+
+    def pending(self):
+        return self._queue.qsize()
+
+    def _loop(self):
+        while not self._stopped:
+            item = self._queue.get()
+            if item is None:
+                break
+            try:
+                self.handler(item)
+            except Exception as error:  # a bad task must not kill the worker
+                if self.logger:
+                    self.logger.exception("bridge task failed: %s", error)
+
+
+# ------------------------------------------------------------------ 执行器
+
+
+def run_task(task, config, session_map, logger=None, runner=None):
+    """Run one agent turn for a task and return a TaskResult."""
+    bridge = config.get("bridge") or {}
+    agent = task.agent
+    workspace = str(resolve_path(str(bridge.get("workspace") or "~")))
+    timeout = float(bridge.get("timeout_seconds", 1800))
+    session_id = session_map.get(task.chat_id, agent) if session_map else ""
+    # Snapshot the generation so a /new issued while this run is in flight wins.
+    generation = session_map.generation(task.chat_id) if session_map else None
+
+    if agent == "dsh" and agents.session_in_use(agent, session_id):
+        return TaskResult(
+            task=task,
+            ok=False,
+            session_id=session_id,
+            error=(
+                "该 dsh 会话正在被桌面 App 占用，无法并发续聊。"
+                "请先在 App 里结束该会话，或发 /new 开一个新会话。"
+            ),
+        )
+
+    execute = runner or agents.get_runner(agent)
+    kwargs = {"timeout": timeout}
+    if agent == "dsh":
+        kwargs["permission_mode"] = bridge.get("permission_mode") or None
+        kwargs["approval_policy"] = bridge.get("approval_policy") or None
+    elif agent == "codex":
+        kwargs["sandbox"] = "workspace-write"
+        kwargs["approval"] = "never"
+
+    started = time.time()
+    try:
+        result = execute(session_id, task.prompt, workspace, **kwargs)
+    except agents.RunnerError as error:
+        return TaskResult(
+            task=task,
+            ok=False,
+            session_id=session_id,
+            error=str(error),
+            duration_seconds=time.time() - started,
+        )
+    except Exception as error:  # never let an unexpected error kill the worker
+        if logger:
+            logger.exception("agent run crashed: %s", error)
+        return TaskResult(
+            task=task,
+            ok=False,
+            session_id=session_id,
+            error=f"运行异常: {error}",
+            duration_seconds=time.time() - started,
+        )
+
+    if session_map and result.session_id:
+        session_map.set(task.chat_id, agent, result.session_id, generation=generation)
+
+    return TaskResult(
+        task=task,
+        ok=result.ok,
+        text=result.text,
+        session_id=result.session_id or session_id,
+        error=result.error,
+        duration_seconds=result.duration_seconds,
+    )

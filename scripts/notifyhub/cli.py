@@ -12,7 +12,9 @@ from .config import config_path, ensure_config, load_config
 from .events import Notification
 from .log import get_logger
 from .render import render_text
-from .router import dispatch
+from . import bridge_cli
+from .outbox import outbox_for
+from .router import dispatch, replay_outbox
 from .runtime import hook_command, launcher_path
 
 SAMPLE_NOTIFICATION = Notification(
@@ -78,9 +80,62 @@ def cmd_hook(args):
         return 0
 
     try:
-        dispatch(notification, config, logger, force=args.force)
+        results = dispatch(notification, config, logger, force=args.force)
     except Exception as error:
         logger.exception("failed to dispatch notification: %s", error)
+        return 0
+
+    # Piggyback replay: the moment connectivity works again, drain whatever
+    # backed up while the proxy was down. Bounded so the hook stays fast.
+    if results and any(ok for _, ok, _ in results) and not args.no_flush:
+        try:
+            delivered, failed, remaining = replay_outbox(config, logger, limit=3)
+            if delivered or failed:
+                logger.info(
+                    "outbox drain: delivered=%d failed=%d remaining=%d",
+                    delivered,
+                    failed,
+                    remaining,
+                )
+        except Exception as error:
+            logger.error("outbox drain failed: %s", error)
+    return 0
+
+
+def cmd_flush(args):
+    config = load_config(args.config)
+    logger = _logger(config, args.verbose)
+    outbox = outbox_for(config, logger)
+
+    if args.status:
+        stats = outbox.stats()
+        print(f"发件箱: {outbox.path_str}")
+        print(f"积压: {stats['count']} 条（可重试 {stats['due']}，已放弃 {stats['dead']}）")
+        if stats["count"]:
+            print(f"最老一条: {stats['oldest_age_hours']} 小时前")
+        for entry in outbox.entries():
+            notification = entry.get("notification") or {}
+            state = "dead" if entry.get("dead") else "pending"
+            print(
+                f"  [{state}] {entry.get('id')} attempts={entry.get('attempts', 0)} "
+                f"{notification.get('status_text', '')} :: {entry.get('last_error', '')[:120]}"
+            )
+        return 0
+
+    if args.clear:
+        count = outbox.clear()
+        print(f"已清空发件箱（{count} 条）")
+        return 0
+
+    if args.retry_dead:
+        revived = outbox.revive_dead()
+        print(f"已恢复 {revived} 条放弃的重试")
+
+    delivered, failed, remaining = replay_outbox(config, logger, limit=args.limit)
+    print(f"重放: 成功 {delivered}，失败 {failed}，剩余 {remaining}")
+    if failed:
+        print("查看原因: python3 notifyhub.py flush --status")
+        return 1
     return 0
 
 
@@ -213,6 +268,16 @@ def cmd_doctor(args):
         installed = installer.has_target_hooks(target)
         checks.append((label, installed, "已安装" if installed else "未安装"))
 
+    outbox = outbox_for(config, _logger(config))
+    stats = outbox.stats()
+    if not outbox.enabled:
+        checks.append(("发件箱", True, "已关闭（失败通知不会重试）"))
+    elif stats["count"] == 0:
+        checks.append(("发件箱", True, "空"))
+    else:
+        detail = f"积压 {stats['count']} 条（可重试 {stats['due']}，放弃 {stats['dead']}）"
+        checks.append(("发件箱", False, detail + "，运行 notifyhub flush"))
+
     for label, ok, detail in checks:
         symbol = "✓" if ok else ("○" if detail in ("已关闭", "未安装") else "✗")
         print(f"{symbol} {label}: {detail}")
@@ -291,6 +356,7 @@ def build_parser():
     hook.add_argument("source", choices=sources())
     hook.add_argument("--dry-run", action="store_true")
     hook.add_argument("--force", action="store_true")
+    hook.add_argument("--no-flush", action="store_true", help="跳过重放发件箱")
     hook.set_defaults(func=cmd_hook)
 
     test = subparsers.add_parser("test", help="发送一条测试通知")
@@ -301,6 +367,13 @@ def build_parser():
     init = subparsers.add_parser("init", help="创建默认配置")
     init.add_argument("--force", action="store_true")
     init.set_defaults(func=cmd_init)
+
+    flush = subparsers.add_parser("flush", help="重放发件箱里积压的通知")
+    flush.add_argument("--status", action="store_true", help="只查看积压，不重放")
+    flush.add_argument("--clear", action="store_true", help="清空发件箱")
+    flush.add_argument("--retry-dead", action="store_true", help="把放弃的条目重新入队")
+    flush.add_argument("--limit", type=int, help="本次最多重放几条")
+    flush.set_defaults(func=cmd_flush)
 
     install = subparsers.add_parser("install-hooks", help="安装 agent hooks")
     install.add_argument("--target", choices=list(installer.TARGETS), default="codex")
@@ -331,6 +404,18 @@ def build_parser():
     dsh.add_argument("--profile", default="web")
     dsh.add_argument("--print", action="store_true", dest="print_only")
     dsh.set_defaults(func=cmd_install_dsh)
+
+    bridge = subparsers.add_parser("bridge", help="飞书远程续聊桥接")
+    bridge_sub = bridge.add_subparsers(dest="bridge_command")
+    bridge_start = bridge_sub.add_parser("start", help="启动长连接桥接（前台运行）")
+    bridge_start.add_argument("--force", action="store_true", help="忽略 bridge.enabled=false")
+    bridge_start.set_defaults(func=bridge_cli.cmd_bridge_start)
+    bridge_status = bridge_sub.add_parser("status", help="查看当前远程会话")
+    bridge_status.set_defaults(func=bridge_cli.cmd_bridge_status)
+    bridge_check = bridge_sub.add_parser("check", help="启动前自检")
+    bridge_check.set_defaults(func=bridge_cli.cmd_bridge_check)
+    bridge_owner = bridge_sub.add_parser("owner", help="打印你的 open_id 供 allow_open_ids 使用")
+    bridge_owner.set_defaults(func=bridge_cli.cmd_bridge_owner)
 
     return parser
 
