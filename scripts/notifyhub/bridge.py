@@ -450,14 +450,19 @@ def run_task(task, config, session_map, logger=None, runner=None):
     # Snapshot the generation so a /new issued while this run is in flight wins.
     generation = session_map.generation(task.chat_id, topic) if session_map else None
 
-    if agent == "dsh" and agents.session_in_use(agent, session_id):
+    if agent == "dsh" and agents.session_in_use(
+        agent,
+        session_id,
+        mode=str(bridge.get("session_conflict") or "idle"),
+        grace_seconds=float(bridge.get("idle_grace_seconds", 90)),
+    ):
         return TaskResult(
             task=task,
             ok=False,
             session_id=session_id,
             error=(
-                "该 dsh 会话正在被桌面 App 占用，无法并发续聊。"
-                "请先在 App 里结束该会话，或发 /new 开一个新会话。"
+                "该 dsh 会话正在被桌面 App 使用（刚刚有写入），无法并发续聊。"
+                "请在 App 里切到别的会话，或发 /new 开一个新会话。"
             ),
         )
 

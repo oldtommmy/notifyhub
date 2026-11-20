@@ -1,5 +1,7 @@
+import fcntl
 import json
 import logging
+import os
 import tempfile
 import time
 import unittest
@@ -480,7 +482,23 @@ class RunTaskTests(unittest.TestCase):
         with patch.object(agents, "session_in_use", return_value=True):
             result = bridge.run_task(self.task, config_with(), self.sessions)
         self.assertFalse(result.ok)
-        self.assertIn("占用", result.error)
+        self.assertIn("并发续聊", result.error)
+
+    def test_conflict_mode_is_passed_from_config(self):
+        # The desktop app locks every session it has loaded, so the default
+        # ("idle") must reach the probe, not the strict "lock" default.
+        self.sessions.set("chat-1", "dsh", "session-busy")
+        seen = {}
+
+        def fake(agent, session_id, mode="lock", grace_seconds=90):
+            seen["mode"] = mode
+            seen["grace"] = grace_seconds
+            return True
+
+        with patch.object(agents, "session_in_use", side_effect=fake):
+            bridge.run_task(self.task, config_with(), self.sessions)
+        self.assertEqual(seen["mode"], "idle")
+        self.assertEqual(seen["grace"], 90)
 
 
 # ------------------------------------------------------------- 结果卡片
@@ -1212,4 +1230,69 @@ class AttachCommandTests(unittest.TestCase):
         self.assertEqual(
             self.sessions.get("c1", "codex", "main"),
             "01a0624a-f543-7713-91b1-2bb6f9e315bd",
+        )
+
+
+class SessionProbeTests(unittest.TestCase):
+    """The desktop app flocks every session it loaded, including idle ones in
+    background tabs. "idle" mode keys off the transcript mtime instead."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.home = Path(self.temp.name)
+        self.session = self.home / "sessions" / "--w--" / "session-abc123"
+        self.session.mkdir(parents=True)
+        self.lock = self.session / "session.lock"
+        self.lock.write_bytes(b"")
+        self.data = self.session / "session.v4.jsonl.zstd"
+        self.data.write_bytes(b"x")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def hold_lock(self):
+        handle = open(self.lock, "a+")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        self.addCleanup(handle.close)
+        return handle
+
+    def test_free_session_is_never_busy(self):
+        self.assertFalse(
+            agents.session_in_use("dsh", "session-abc123", dsh_home=self.home, mode="lock")
+        )
+        self.assertFalse(
+            agents.session_in_use("dsh", "session-abc123", dsh_home=self.home, mode="idle")
+        )
+
+    def test_lock_mode_refuses_any_held_lock(self):
+        self.hold_lock()
+        old = time.time() - 3600
+        os.utime(self.data, (old, old))
+        self.assertTrue(
+            agents.session_in_use("dsh", "session-abc123", dsh_home=self.home, mode="lock")
+        )
+
+    def test_idle_mode_allows_a_stale_but_locked_session(self):
+        self.hold_lock()
+        old = time.time() - 3600
+        os.utime(self.data, (old, old))
+        self.assertFalse(
+            agents.session_in_use(
+                "dsh", "session-abc123", dsh_home=self.home, mode="idle", grace_seconds=90
+            )
+        )
+
+    def test_idle_mode_refuses_a_recently_written_session(self):
+        self.hold_lock()
+        self.assertFalse(
+            agents.session_in_use(
+                "dsh", "session-abc123", dsh_home=self.home, mode="idle", grace_seconds=90
+            )
+            is False
+        )
+
+    def test_unknown_agent_is_never_busy(self):
+        self.hold_lock()
+        self.assertFalse(
+            agents.session_in_use("codex", "session-abc123", dsh_home=self.home, mode="lock")
         )

@@ -215,12 +215,36 @@ def available_agents():
 # -------------------------------------------------------------- 会话锁探测
 
 
-def session_in_use(agent, session_id, dsh_home=None):
-    """True when another process holds the session lock.
+def _lock_is_held(lock_path):
+    """True when some process holds an exclusive flock on this lock file."""
+    try:
+        import fcntl
+    except ImportError:  # Windows: flock is unavailable, assume free.
+        return False
+    try:
+        with open(lock_path, "a+") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                return True
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            return False
+    except OSError:
+        return False
+
+
+def session_in_use(agent, session_id, dsh_home=None, mode="lock", grace_seconds=90):
+    """True when resuming this session from the bridge would race another writer.
 
     dsh keeps <DSH_HOME>/sessions/<cwd-hash>/<session-id>/session.lock and takes a
-    flock on it. Concurrency is the main risk when a desktop app owns the same
-    session, so the bridge checks before resuming instead of corrupting history.
+    flock on it, and the desktop app also locks every session it has loaded —
+    including ones sitting idle in a background tab. Two modes:
+
+    "lock" - any held lock means busy. Safest, but refuses sessions that are
+             merely open in the app.
+    "idle" - a held lock means busy only if the session file itself changed
+             within grace_seconds. That is the case where the app is really
+             writing; a lock alone only proves the session was loaded.
     """
     if agent != "dsh" or not session_id:
         return False
@@ -241,18 +265,24 @@ def session_in_use(agent, session_id, dsh_home=None):
         return False
 
     lock_path = candidates[0]
-    try:
-        import fcntl
-    except ImportError:  # Windows: flock is unavailable, assume not in use.
+    if not _lock_is_held(lock_path):
         return False
+    if mode == "lock":
+        return True
 
-    try:
-        with open(lock_path, "a+") as handle:
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                return True
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            return False
-    except OSError:
-        return False
+    # "idle": the lock is held, so the app has this session loaded. Only treat
+    # it as busy if the transcript moved recently.
+    data_paths = [
+        lock_path.parent / "session.v4.jsonl.zstd",
+        lock_path.parent / "session.v4.jsonl",
+    ]
+    newest = 0.0
+    for path in data_paths:
+        try:
+            newest = max(newest, path.stat().st_mtime)
+        except OSError:
+            continue
+    if not newest:
+        # No transcript to judge by; fall back to the strict answer.
+        return True
+    return (time.time() - newest) < max(0, grace_seconds)

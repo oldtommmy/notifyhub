@@ -107,6 +107,14 @@ DEFAULT_CONFIG = {
         # Reject a new task while the same session is still running.
         "reject_when_busy": True,
         "sessions_path": "~/.local/state/notifyhub/bridge_sessions.json",
+        # How to treat a dsh session the desktop app already holds a lock on.
+        # "lock"   - any lock blocks the bridge (strictest, safest).
+        # "idle"   - a lock blocks only if the session file was touched within
+        #            idle_grace_seconds, i.e. the desktop app is actively
+        #            writing. The desktop app locks every session it loaded,
+        #            so "lock" would refuse sessions that are merely open.
+        "session_conflict": "idle",
+        "idle_grace_seconds": 90,
         "reply": {
             "ack": True,
             "on_start": True,
