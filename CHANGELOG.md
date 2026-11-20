@@ -1,6 +1,25 @@
 # Changelog
 
-## 0.8.0
+## 0.9.0
+
+### Fixed
+
+- **A session that is merely open in the desktop app is now resumable.** The
+  old conflict probe had two wrong assumptions. First, it treated the presence
+  of `session.lock` as "busy" — but dsh never deletes that file on release (it
+  keeps the inode stable for later lockers) and the lock itself is an flock
+  the kernel drops when the holder's descriptor closes. Second, the default
+  `idle` mode blocked whenever the transcript's mtime was within
+  `idle_grace_seconds` (90s), which a desktop session's periodic flush keeps
+  refreshing. Together they made the bridge refuse sessions that dsh would
+  have happily written: dsh opens existing sessions with a *read* handle and
+  only takes the write claim while it is actually appending. The probe now
+  checks the flock alone, and `bridge.session_conflict` /
+  `bridge.idle_grace_seconds` are gone.
+- **A lost race now reads as a retry, not a crash.** If the desktop app grabs
+  the write handle between the probe and dsh's write open, the resulting
+  `SessionAlreadyOwnedError` is translated into a plain "App 正在写它，稍后再发
+  或 /handoff" reply instead of surfacing dsh's internal error text.
 
 ### Added
 
@@ -18,20 +37,19 @@
   the plist at install time (export first) or are read from the machine's own
   config/credential files at start-up.
 - **`/handoff`: carry a desktop conversation to the phone without the lock.**
-  dsh allows one write handle per session id, and the desktop app holds every
-  session it has loaded, so continuing the very same conversation from the
-  phone is impossible while the app is open. `/handoff` reads the session's
-  transcript instead — no write handle needed — and injects the most recent
-  turns as read-only context into a fresh bridge session. Configurable with
-  `bridge.handoff_turns` (default 6) and `bridge.handoff_max_chars`
-  (default 12000). The trade-off is stated in the reply: what you type on the
-  phone is not written back to the desktop session.
+  dsh allows one write handle per session id, so two writers cannot append to
+  the same log at once. `/handoff` reads the session's transcript instead — no
+  write handle needed — and injects the most recent turns as read-only context
+  into a fresh bridge session. Configurable with `bridge.handoff_turns`
+  (default 6) and `bridge.handoff_max_chars` (default 12000). The trade-off is
+  stated in the reply: what you type on the phone is not written back to the
+  desktop session.
 
 ### Changed
 
-- `/attach` marks sessions the desktop app is holding with 🔒 and, when you
-  pick one, explains both ways forward (quit the app for a real resume, or
-  `/handoff` for a carry-over) instead of failing on the next message.
+- `/attach` marks sessions with 🔒 only while the desktop app is *actually
+  writing* them, and explains both ways forward (wait a few seconds for a real
+  resume, or `/handoff` for a carry-over).
 
 ## 0.7.0
 

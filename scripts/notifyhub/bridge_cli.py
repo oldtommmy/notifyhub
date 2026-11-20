@@ -297,26 +297,20 @@ class BridgeService:
         if not items:
             return "本机没有找到 dsh / codex 的已有会话。"
 
-        settings = _bridge_settings(self.config)
-        mode = str(settings.get("session_conflict") or "idle")
-        grace = float(settings.get("idle_grace_seconds", 90))
-
         lines = ["本机已有会话（最近 10 个）："]
         for index, item in enumerate(items, start=1):
             title = (item.title or "(无标题)")[:28]
             age = item.age_hours()
             when = f"{age*60:.0f}分钟前" if age < 1 else f"{age:.1f}小时前"
             cwd = Path(item.cwd).name if item.cwd else ""
-            busy = item.agent == "dsh" and agents.session_in_use(
-                "dsh", item.session_id, mode=mode, grace_seconds=grace
-            )
+            busy = item.agent == "dsh" and agents.session_in_use("dsh", item.session_id)
             mark = " 🔒" if busy else ""
             lines.append(f"{index}. [{item.agent}] {title}{mark}")
             lines.append(f"    {when} · {cwd}")
         if any(line.endswith("🔒") for line in lines):
             lines.append("")
-            lines.append("🔒 = 电脑上的 DSH 正开着它，只能挂个名；")
-            lines.append("     要真正续写请先在电脑上退出 DSH，或用 /handoff 接上下文。")
+            lines.append("🔒 = 电脑上的 DSH 此刻正在写它（真正持有写锁）；")
+            lines.append("     稍后再发，或用 /handoff 接上下文（不冲突）。")
         lines.append("")
         lines.append("/attach <序号> 接到当前话题")
         return "\n".join(lines)
@@ -365,16 +359,11 @@ class BridgeService:
             self._reply(message_id, "没有识别到会话 id。")
             return
 
-        # Binding a session the desktop app is holding will fail on the next
-        # message anyway, so say so now and point at /handoff, which needs no
-        # write handle.
+        # A session the desktop app is *writing* right now cannot be resumed in
+        # parallel, so say so up front — but a session merely loaded in the app
+        # holds no lock and is resumed normally.
         blocked = chosen.agent == "dsh" and agents.session_in_use(
-            "dsh",
-            chosen.session_id,
-            mode=str(_bridge_settings(self.config).get("session_conflict") or "idle"),
-            grace_seconds=float(
-                _bridge_settings(self.config).get("idle_grace_seconds", 90)
-            ),
+            "dsh", chosen.session_id
         )
 
         self.session_map.set(chat_id, chosen.agent, chosen.session_id, topic=topic)
@@ -391,10 +380,10 @@ class BridgeService:
             self._reply(
                 message_id,
                 f"已记下 {chosen.agent} 会话 {chosen.session_id} {detail}，"
-                f"但电脑上的 DSH 正开着它，写不进去。\n"
+                f"但电脑上的 DSH 此刻正在写它，写不进去。\n"
                 "两个选择：\n"
-                "1. 在电脑上完全退出 DSH（Cmd+Q），再发消息就是真正续写。\n"
-                "2. 发 /handoff 把它的历史接到飞书这边，现在就能聊"
+                "1. 等它写完再发消息（通常几秒），就是真正的续写。\n"
+                "2. 发 /handoff 把它的历史接到飞书这边，马上就能聊"
                 "（手机说的话不会写回电脑）。",
             )
         else:

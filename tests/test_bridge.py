@@ -486,7 +486,7 @@ class RunTaskTests(unittest.TestCase):
         with patch.object(agents, "session_in_use", return_value=True):
             result = bridge.run_task(self.task, config_with(), self.sessions)
         self.assertFalse(result.ok)
-        self.assertIn("并发续聊", result.error)
+        self.assertEqual(result.error, bridge.LOCKED_HINT)
 
     def test_handoff_context_reaches_the_runner(self):
         task = bridge.Task(
@@ -518,20 +518,37 @@ class RunTaskTests(unittest.TestCase):
         self.assertNotIn("context", seen)
 
     def test_conflict_mode_is_passed_from_config(self):
-        # The desktop app locks every session it has loaded, so the default
-        # ("idle") must reach the probe, not the strict "lock" default.
+        # The probe takes no tuning knobs any more: only a held flock blocks.
         self.sessions.set("chat-1", "dsh", "session-busy")
         seen = {}
 
-        def fake(agent, session_id, mode="lock", grace_seconds=90):
-            seen["mode"] = mode
-            seen["grace"] = grace_seconds
+        def fake(agent, session_id):
+            seen["agent"] = agent
+            seen["session"] = session_id
             return True
 
         with patch.object(agents, "session_in_use", side_effect=fake):
             bridge.run_task(self.task, config_with(), self.sessions)
-        self.assertEqual(seen["mode"], "idle")
-        self.assertEqual(seen["grace"], 90)
+        self.assertEqual(seen["agent"], "dsh")
+        self.assertEqual(seen["session"], "session-busy")
+
+    def test_owned_error_becomes_a_lock_hint(self):
+        # The desktop app can grab the write handle between the probe and
+        # dsh's own write open; that race must read as "try again", not as a
+        # mysterious dsh crash.
+        self.sessions.set("chat-1", "dsh", "session-busy")
+
+        def runner(*args, **kwargs):
+            return agents.RunResult(
+                ok=False,
+                exit_code=1,
+                error='session "session-busy" is already owned by an active write handle',
+                session_id="session-busy",
+            )
+
+        result = bridge.run_task(self.task, config_with(), self.sessions, runner=runner)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.error, bridge.LOCKED_HINT)
 
 
 # ------------------------------------------------------------- 结果卡片
@@ -1186,7 +1203,7 @@ class AttachCommandTests(unittest.TestCase):
                 kind="attach", payload="session-live-0001", message_id="m", chat_id="c1",
                 sender_id="ou", chat_type="p2p",
             )
-        self.assertIn("正开着它", self.replies[-1])
+        self.assertIn("正在写它", self.replies[-1])
         self.assertIn("/handoff", self.replies[-1])
 
     def test_attach_is_quiet_when_the_session_is_free(self):
@@ -1306,8 +1323,8 @@ class AttachCommandTests(unittest.TestCase):
 
 
 class SessionProbeTests(unittest.TestCase):
-    """The desktop app flocks every session it loaded, including idle ones in
-    background tabs. "idle" mode keys off the transcript mtime instead."""
+    """A session is busy only while another process holds its flock. dsh never
+    deletes session.lock on release, so the file's presence must not block."""
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -1328,46 +1345,48 @@ class SessionProbeTests(unittest.TestCase):
         self.addCleanup(handle.close)
         return handle
 
-    def test_free_session_is_never_busy(self):
-        self.assertFalse(
-            agents.session_in_use("dsh", "session-abc123", dsh_home=self.home, mode="lock")
-        )
-        self.assertFalse(
-            agents.session_in_use("dsh", "session-abc123", dsh_home=self.home, mode="idle")
-        )
+    def probe(self):
+        return agents.session_in_use("dsh", "session-abc123", dsh_home=self.home)
 
-    def test_lock_mode_refuses_any_held_lock(self):
-        self.hold_lock()
-        old = time.time() - 3600
-        os.utime(self.data, (old, old))
-        self.assertTrue(
-            agents.session_in_use("dsh", "session-abc123", dsh_home=self.home, mode="lock")
-        )
+    def test_a_bare_lock_file_is_not_busy(self):
+        # The common case: the app released the lock but the file stays behind.
+        self.assertFalse(self.probe())
 
-    def test_idle_mode_allows_a_stale_but_locked_session(self):
-        self.hold_lock()
-        old = time.time() - 3600
-        os.utime(self.data, (old, old))
-        self.assertFalse(
-            agents.session_in_use(
-                "dsh", "session-abc123", dsh_home=self.home, mode="idle", grace_seconds=90
-            )
-        )
+    def test_a_recently_written_transcript_is_not_busy_on_its_own(self):
+        # mtime says nothing about who owns the session; only the flock does.
+        os.utime(self.data, (time.time(), time.time()))
+        self.assertFalse(self.probe())
 
-    def test_idle_mode_refuses_a_recently_written_session(self):
+    def test_a_held_lock_is_busy(self):
         self.hold_lock()
-        self.assertFalse(
-            agents.session_in_use(
-                "dsh", "session-abc123", dsh_home=self.home, mode="idle", grace_seconds=90
-            )
-            is False
-        )
+        self.assertTrue(self.probe())
+
+    def test_releasing_the_lock_clears_busy_without_deleting_the_file(self):
+        handle = self.hold_lock()
+        self.assertTrue(self.probe())
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        self.assertTrue(self.lock.exists())
+        self.assertFalse(self.probe())
 
     def test_unknown_agent_is_never_busy(self):
         self.hold_lock()
         self.assertFalse(
-            agents.session_in_use("codex", "session-abc123", dsh_home=self.home, mode="lock")
+            agents.session_in_use("codex", "session-abc123", dsh_home=self.home)
         )
+
+    def test_missing_session_dir_is_never_busy(self):
+        self.assertFalse(
+            agents.session_in_use("dsh", "session-nope", dsh_home=self.home)
+        )
+
+    def test_owned_error_is_recognised(self):
+        self.assertTrue(
+            agents.is_already_owned(
+                'session "session-abc123" is already owned by an active write handle'
+            )
+        )
+        self.assertFalse(agents.is_already_owned("超时（>30s）"))
+        self.assertFalse(agents.is_already_owned(None))
 
 
 class HandoffCommandTests(unittest.TestCase):

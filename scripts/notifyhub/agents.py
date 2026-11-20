@@ -248,18 +248,18 @@ def _lock_is_held(lock_path):
         return False
 
 
-def session_in_use(agent, session_id, dsh_home=None, mode="lock", grace_seconds=90):
-    """True when resuming this session from the bridge would race another writer.
+def session_in_use(agent, session_id, dsh_home=None):
+    """True when another process currently holds this session's write lock.
 
-    dsh keeps <DSH_HOME>/sessions/<cwd-hash>/<session-id>/session.lock and takes a
-    flock on it, and the desktop app also locks every session it has loaded —
-    including ones sitting idle in a background tab. Two modes:
+    dsh keeps <DSH_HOME>/sessions/<cwd-hash>/<session-id>/session.lock and takes
+    a non-blocking flock on it while a write handle is open. The lock file is
+    *never deleted* on release (dsh keeps the inode stable for later lockers),
+    so the file's presence proves nothing — only a held flock does.
 
-    "lock" - any held lock means busy. Safest, but refuses sessions that are
-             merely open in the app.
-    "idle" - a held lock means busy only if the session file itself changed
-             within grace_seconds. That is the case where the app is really
-             writing; a lock alone only proves the session was loaded.
+    The flock is also not held for the whole life of a desktop session: dsh
+    opens existing sessions with a read handle and only takes the write claim
+    when it actually appends. So an idle session the app has "opened" is
+    normally writable from the bridge, and this probe answers False for it.
     """
     if agent != "dsh" or not session_id:
         return False
@@ -279,25 +279,21 @@ def session_in_use(agent, session_id, dsh_home=None, mode="lock", grace_seconds=
     if not candidates:
         return False
 
-    lock_path = candidates[0]
-    if not _lock_is_held(lock_path):
-        return False
-    if mode == "lock":
-        return True
+    return _lock_is_held(candidates[0])
 
-    # "idle": the lock is held, so the app has this session loaded. Only treat
-    # it as busy if the transcript moved recently.
-    data_paths = [
-        lock_path.parent / "session.v4.jsonl.zstd",
-        lock_path.parent / "session.v4.jsonl",
-    ]
-    newest = 0.0
-    for path in data_paths:
-        try:
-            newest = max(newest, path.stat().st_mtime)
-        except OSError:
-            continue
-    if not newest:
-        # No transcript to judge by; fall back to the strict answer.
-        return True
-    return (time.time() - newest) < max(0, grace_seconds)
+
+# dsh's SessionAlreadyOwnedError text (rendered into the headless "final" event
+# or stderr when a write open finds the session bound to another writer).
+_OWNED_MARKERS = (
+    "already owned by an active write handle",
+    "SessionAlreadyOwnedError",
+)
+
+
+def is_already_owned(result_or_text):
+    """True when a run failed only because another process owns the session."""
+    if isinstance(result_or_text, RunResult):
+        text = f"{result_or_text.error}\n{result_or_text.text}"
+    else:
+        text = str(result_or_text or "")
+    return any(marker in text for marker in _OWNED_MARKERS)
