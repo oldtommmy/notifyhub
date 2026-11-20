@@ -108,6 +108,14 @@ class BridgeService:
             try:
                 feishu_app.reply_text(message_id, text, self._app_settings())
                 return True
+            except feishu_app.AmbiguousSendError as error:
+                # Same reasoning as _send: an unanswered reply may already be
+                # in the chat, and a second copy is worse than none.
+                self.logger.warning(
+                    "bridge: reply outcome unknown (%s); not retrying",
+                    str(error)[:160],
+                )
+                return False
             except Exception as error:
                 self.logger.warning(
                     "bridge: reply attempt %d/2 failed: %s", attempt, str(error)[:160]
@@ -137,6 +145,16 @@ class BridgeService:
                 if attempt > 1:
                     self.logger.info("bridge: card delivered on attempt %d", attempt)
                 return True
+            except feishu_app.AmbiguousSendError as error:
+                # No answer came back: Feishu may well have delivered it. A
+                # retry here is what shows up as a duplicate card in the chat.
+                last_error = error
+                self.logger.warning(
+                    "bridge: card send outcome unknown (%s); not retrying to "
+                    "avoid a duplicate",
+                    str(error)[:160],
+                )
+                break
             except Exception as error:
                 last_error = error
                 self.logger.warning(

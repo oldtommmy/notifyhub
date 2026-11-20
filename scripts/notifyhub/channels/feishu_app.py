@@ -14,6 +14,17 @@ class FeishuAppError(RuntimeError):
     pass
 
 
+class AmbiguousSendError(FeishuAppError):
+    """The request may or may not have reached Feishu.
+
+    A read timeout, a reset connection, or an EOF in the TLS handshake all mean
+    "no answer came back" -- not "the message was rejected". Feishu may already
+    have delivered it, so a blind retry produces a visible duplicate. Callers
+    must not retry these; they should check whether it landed, or hand it to the
+    outbox with a dedupe key and let the replay decide.
+    """
+
+
 def build_content(notification, config):
     if config.get("message_type", "card") == "text":
         return "text", {"text": render_text(notification)}
@@ -47,7 +58,7 @@ def _post_json(url, payload, headers, timeout):
         detail = error.read().decode("utf-8", "replace")
         raise FeishuAppError(f"HTTP {error.code}: {detail[:300]}") from error
     except (urllib.error.URLError, TimeoutError, OSError) as error:
-        raise FeishuAppError(f"request failed: {error}") from error
+        raise AmbiguousSendError(f"request failed: {error}") from error
 
     try:
         parsed = json.loads(raw)

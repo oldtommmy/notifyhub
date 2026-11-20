@@ -6,7 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from notifyhub import agents, bridge
 from notifyhub.config import DEFAULT_CONFIG, deep_merge
@@ -1320,6 +1320,58 @@ class AttachCommandTests(unittest.TestCase):
             self.sessions.get("c1", "codex", "main"),
             "01a0624a-f543-7713-91b1-2bb6f9e315bd",
         )
+
+
+class DuplicateSuppressionTests(unittest.TestCase):
+    """A send whose outcome is unknown must not be repeated."""
+
+    def test_an_ambiguous_card_send_is_not_retried(self):
+        service = _service()
+        ambiguous = bridge_cli.feishu_app.AmbiguousSendError("timed out")
+        with patch.object(bridge_cli.feishu_app, "send", side_effect=ambiguous) as send:
+            with patch.object(bridge_cli.time, "sleep") as sleep:
+                ok = service._send(_notification(), "oc_chat")
+        self.assertFalse(ok)
+        self.assertEqual(send.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_a_definite_card_failure_is_still_retried(self):
+        service = _service()
+        with patch.object(
+            bridge_cli.feishu_app, "send", side_effect=RuntimeError("HTTP 500")
+        ) as send, patch.object(bridge_cli.time, "sleep"), patch.object(
+            bridge_cli, "outbox_for"
+        ) as outbox:
+            outbox.return_value = MagicMock()
+            ok = service._send(_notification(), "oc_chat")
+        self.assertFalse(ok)
+        self.assertEqual(send.call_count, 3)
+
+    def test_an_ambiguous_reply_is_not_retried(self):
+        service = _service()
+        ambiguous = bridge_cli.feishu_app.AmbiguousSendError("eof")
+        with patch.object(
+            bridge_cli.feishu_app, "reply_text", side_effect=ambiguous
+        ) as reply, patch.object(bridge_cli.time, "sleep") as sleep:
+            ok = service._reply("om_1", "hi")
+        self.assertFalse(ok)
+        self.assertEqual(reply.call_count, 1)
+        sleep.assert_not_called()
+
+
+def _notification():
+    from notifyhub.events import Notification
+
+    return Notification(
+        source="dsh", event="BridgeResult", status_text="✅", color="green",
+        last_message="hi",
+    )
+
+
+def _service():
+    logger = MagicMock()
+    config = {"channels": {"feishu_app": {"app_id": "a", "app_secret": "b"}}, "bridge": {}}
+    return bridge_cli.BridgeService(config, logger)
 
 
 class SessionProbeTests(unittest.TestCase):
