@@ -237,7 +237,7 @@ See [bridge.md](bridge.md) for the full guide. Summary of the `bridge` block:
     "max_message_chars": 3000,
     "reject_when_busy": true,
     "sessions_path": "~/.local/state/notifyhub/bridge_sessions.json",
-    "reply": {"ack": true, "on_start": true, "on_finish": true},
+    "reply": {"ack": false, "on_finish": true},
     "prefixes": {"dsh": "", "codex": ""}
   }
 }
@@ -250,8 +250,13 @@ See [bridge.md](bridge.md) for the full guide. Summary of the `bridge` block:
 - `workspace` — the agent's cwd. Point it at a dedicated directory.
 - `approval_policy` / `permission_mode` — unattended runs cannot prompt, so
   `never` plus `workspace-write` keeps the blast radius inside `workspace`.
-- `reply.ack` — send the "received, queued" message. `on_finish` sends the result
-  card. `on_start` is reserved.
+- `reply.ack` — send the "收到，已交给 X 处理" line before the run starts.
+  **Off by default**: a bare message already answers with a result card, so the
+  ack only doubles the traffic. Turn it on if you want confirmation that the
+  message was picked up (useful when a run takes minutes).
+  `reply.on_finish` sends the result card. Commands (`/attach`, `/topic`,
+  `/new`, `/handoff`) always reply regardless of these flags — there is no
+  result card that would tell you whether they worked.
 
 The bridge reuses `channels.feishu_app` (app_id / app_secret / base_url) for both
 the long connection and the replies.

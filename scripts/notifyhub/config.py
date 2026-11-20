@@ -115,9 +115,12 @@ DEFAULT_CONFIG = {
         # much to carry over: recent exchanges, and a hard character ceiling.
         "handoff_turns": 6,
         "handoff_max_chars": 12000,
+        # "ack" is the "收到，已交给 X 处理" line. It is off by default: a bare
+        # message already gets a result card, and the ack just doubles the
+        # traffic in the chat. Commands (/attach, /topic, /new) always answer,
+        # because there is no result card to tell you whether they worked.
         "reply": {
-            "ack": True,
-            "on_start": True,
+            "ack": False,
             "on_finish": True,
         },
         # Optional command prefixes, e.g. {"codex": "@codex ", "dsh": "@dsh "}.

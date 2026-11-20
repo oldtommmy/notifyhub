@@ -1441,6 +1441,23 @@ class SessionProbeTests(unittest.TestCase):
         self.assertFalse(agents.is_already_owned(None))
 
 
+class AckPolicyTests(unittest.TestCase):
+    """The "收到" line is opt-in: a result card already answers the message."""
+
+    def test_default_config_does_not_ack_a_bare_message(self):
+        settings = deep_merge({}, DEFAULT_CONFIG)["bridge"]
+        self.assertFalse(settings["reply"]["ack"])
+
+    def test_ack_can_be_turned_back_on(self):
+        settings = deep_merge(DEFAULT_CONFIG, {"bridge": {"reply": {"ack": True}}})["bridge"]
+        self.assertTrue(settings["reply"]["ack"])
+
+    def test_the_default_leaves_no_unused_switch(self):
+        # on_start was documented but never read; do not ship a dead knob.
+        settings = deep_merge({}, DEFAULT_CONFIG)["bridge"]
+        self.assertEqual(set(settings["reply"]), {"ack", "on_finish"})
+
+
 class HandoffCommandTests(unittest.TestCase):
     """\u002fhandoff seeds the next message with a desktop conversation digest."""
 

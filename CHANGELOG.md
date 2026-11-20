@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.1
+
+### Fixed
+
+- **Duplicate result cards after a network hiccup.** A read timeout, a reset
+  connection, or an EOF mid-handshake means no answer came back — not that
+  Feishu rejected the message. The send loop retried all of them, so a dropped
+  proxy connection could post the same card twice. Such failures now raise
+  `AmbiguousSendError` and are never retried; definite rejections (HTTP error
+  or non-zero `code`) still are, because those provably did not land.
+- **Fewer messages per turn.** `reply.ack` is off by default: a bare message
+  already answers with a result card, so the "收到，已交给 dsh 处理" line just
+  doubled the traffic. Turn it back on if a run takes long enough that you want
+  confirmation it was picked up. Commands always reply. The undocumented
+  `reply.on_start` knob (never read by any code) is gone.
+
+## 0.8.0
+
 ## 0.9.0
 
 ### Fixed
