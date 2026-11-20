@@ -1009,6 +1009,37 @@ class SessionIndexTests(unittest.TestCase):
         with patch.dict("os.environ", {"DSH_HOME": str(self.home), "CODEX_HOME": str(self.home)}):
             self.assertEqual(si.list_sessions(), [])
 
+    def test_codex_skips_all_injected_system_blocks(self):
+        from notifyhub import sessions_index as si
+
+        day = self.home / "sessions" / "2026" / "11" / "20"
+        day.mkdir(parents=True)
+        rollout = day / "rollout-x.jsonl"
+
+        def user(text):
+            return json.dumps(
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": text}],
+                    },
+                }
+            )
+
+        lines = [
+            json.dumps({"type": "session_meta", "payload": {"id": "sid-2", "cwd": "/w"}}),
+            user("<recommended_plugins>\nHere is a list of plugins"),
+            user("<environment_context>\n  <cwd>/w</cwd>"),
+            user("帮我改这个函数"),
+        ]
+        rollout.write_text("\n".join(lines), encoding="utf-8")
+
+        with patch.dict("os.environ", {"CODEX_HOME": str(self.home)}):
+            items = si.list_codex_sessions()
+        self.assertEqual(items[0].title, "帮我改这个函数")
+
 
 class AttachCommandTests(unittest.TestCase):
     def setUp(self):
@@ -1100,3 +1131,48 @@ class AttachCommandTests(unittest.TestCase):
                 sender_id="ou", chat_type="p2p",
             )
         self.assertIn("没有找到", self.replies[-1])
+
+
+    def test_angle_bracket_index_is_accepted(self):
+        # Feishu clients can render "<2>" or a markdown-quoted "`2`".
+        with self.fake_list(("dsh", "session-1", "甲"), ("dsh", "session-2", "乙")):
+            self.service._on_message(
+                kind="attach_list", payload=None, message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+            for form in ("<2>", "`2`", "'2'"):
+                self.sessions.set("c1", "dsh", "")
+                self.service._on_message(
+                    kind="attach", payload=form, message_id="m", chat_id="c1",
+                    sender_id="ou", chat_type="p2p",
+                )
+                self.assertEqual(
+                    self.sessions.get("c1", "dsh", "main"), "session-2", form
+                )
+
+    def test_malformed_argument_is_rejected_not_stored(self):
+        # Previously "<2>" or any junk was stored as a codex session id.
+        with self.fake_list(("dsh", "session-1", "甲")):
+            self.service._on_message(
+                kind="attach_list", payload=None, message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+            self.service._on_message(
+                kind="attach", payload="随便什么", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertIn("没看懂", self.replies[-1])
+        self.assertEqual(self.sessions.get("c1", "codex", "main"), "")
+        self.assertEqual(self.sessions.get("c1", "dsh", "main"), "")
+
+    def test_codex_uuid_is_recognised(self):
+        with self.fake_list():
+            self.service._on_message(
+                kind="attach",
+                payload="01a0624a-f543-7713-91b1-2bb6f9e315bd",
+                message_id="m", chat_id="c1", sender_id="ou", chat_type="p2p",
+            )
+        self.assertEqual(
+            self.sessions.get("c1", "codex", "main"),
+            "01a0624a-f543-7713-91b1-2bb6f9e315bd",
+        )

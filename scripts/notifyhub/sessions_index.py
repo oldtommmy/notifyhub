@@ -172,7 +172,12 @@ def _codex_session_meta(path):
 
 
 def _codex_text(content):
-    """Join user text parts, skipping injected environment context."""
+    """Join user text parts, skipping injected context blocks.
+
+    Codex prepends system blocks as user messages: <environment_context>,
+    <recommended_plugins>, <user_instructions>, and similar. They all start
+    with a tag, so anything of that shape is not a real prompt.
+    """
     if not isinstance(content, list):
         return ""
     parts = []
@@ -184,8 +189,7 @@ def _codex_text(content):
         text = str(item.get("text") or "").strip()
         if not text:
             continue
-        # Injected context blocks start with a tag-ish preamble; skip them.
-        if text.startswith("<environment_context") or text.startswith("The following "):
+        if text.startswith("<") or text.startswith("The following "):
             continue
         parts.append(text)
     return " ".join(parts).strip()[:120]

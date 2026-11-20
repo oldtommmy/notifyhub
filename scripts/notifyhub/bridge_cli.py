@@ -308,20 +308,39 @@ class BridgeService:
         topic = self.session_map.active_topic(chat_id)
         items = self._attach_cache.get(chat_id) or []
 
-        chosen = None
-        text = str(argument or "").strip()
+        choosen = None
+        raw = str(argument or "").strip()
+        # Feishu clients can wrap the number in angle brackets (<2>) or add a
+        # markdown backtick; treat those as the number they contain.
+        text = raw.strip("<>`'\"").strip()
         if text.isdigit():
             index = int(text)
             if not items:
-                self._reply(message_id, "先发 /attach 看看有哪些会话。")
+                self._reply(
+                    message_id,
+                    "先发 /attach 看看有哪些会话（列表只对同一次运行有效）。",
+                )
                 return
             if not 1 <= index <= len(items):
                 self._reply(message_id, f"序号要在 1 到 {len(items)} 之间。")
                 return
             chosen = items[index - 1]
-        else:
-            # Accept a raw session id, and infer the agent from its shape.
-            agent = "dsh" if text.startswith("session-") else "codex"
+        elif text:
+            # A raw session id: dsh uses session-*, codex uses a bare uuid.
+            # Be strict enough to reject chatter, loose enough to accept any
+            # well-formed id the two agents might produce.
+            looks_like_dsh = re.fullmatch(r"session-[A-Za-z0-9-]{6,}", text)
+            looks_like_codex = re.fullmatch(r"[0-9a-fA-F-]{20,}", text)
+            if not (looks_like_dsh or looks_like_codex):
+                self._reply(
+                    message_id,
+                    f"没看懂「{raw[:20]}」。用法：\n"
+                    "/attach → 列出会话\n"
+                    "/attach 2 → 接第 2 个\n"
+                    "/attach <完整的 session id>",
+                )
+                return
+            agent = "dsh" if looks_like_dsh else "codex"
             chosen = sessions_index.ExistingSession(agent=agent, session_id=text)
 
         if not chosen or not chosen.session_id:
@@ -329,11 +348,18 @@ class BridgeService:
             return
 
         self.session_map.set(chat_id, chosen.agent, chosen.session_id, topic=topic)
+        self.logger.info(
+            "bridge: attach topic=%s chat=%s agent=%s session=%s",
+            self._topic_label(topic),
+            chat_id,
+            chosen.agent,
+            chosen.session_id,
+        )
         title = (chosen.title or "").strip()
         detail = f"「{title[:24]}」" if title else ""
         self._reply(
             message_id,
-            f"已把 {chosen.agent} 会话 {chosen.session_id[:16]}… {detail} "
+            f"已把 {chosen.agent} 会话 {chosen.session_id} {detail} "
             f"接到话题 {self._topic_label(topic)}。\n"
             "现在直接发消息就会接着那个对话说。",
         )
@@ -386,6 +412,12 @@ class BridgeService:
                 result.ok,
                 result.duration_seconds,
             )
+            if not result.ok:
+                # Without this a failed run logs only "ok=False" and the cause
+                # (busy session, bad credentials, timeout) is invisible.
+                self.logger.warning(
+                    "bridge: %s failed: %s", task.agent, (result.error or "(无错误信息)")[:300]
+                )
         except Exception as error:
             self.logger.exception("bridge: task crashed: %s", error)
             self._reply(task.message_id, f"处理失败：{error}")
