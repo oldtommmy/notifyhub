@@ -28,6 +28,7 @@ class RunResult:
     text: str = ""
     session_id: str = ""
     error: str = ""
+    error_code: str = ""
     exit_code: int | None = None
     duration_seconds: float = 0.0
     events: list = field(default_factory=list)
@@ -115,6 +116,7 @@ def dsh_runner(session_id, prompt, cwd, timeout, permission_mode=None, approval_
             if kind == "error":
                 error = reason.get("error") or {}
                 result.error = str(error.get("message") or "运行失败")
+                result.error_code = str(error.get("code") or "")
             elif kind in ("aborted", "interrupted", "max-tokens"):
                 result.ok = False
                 result.error = f"运行结束: {kind}"
@@ -124,13 +126,18 @@ def dsh_runner(session_id, prompt, cwd, timeout, permission_mode=None, approval_
     result.events = events[-20:]
     if not events:
         detail = (completed.stderr or "").strip() or "没有输出"
-        if "MISSING_CREDENTIAL" in detail:
-            raise RunnerError(
-                "dsh 缺少 API key（MISSING_CREDENTIAL）。"
-                "请先在 DSH 的 Models 页面配置模型，或在启动环境里 export DEEPSEEK_API_KEY"
-            )
         result.error = detail[:500]
         return result
+    if result.error and ("MISSING_CREDENTIAL" in result.error or result.error_code == "MISSING_CREDENTIAL"):
+        # dsh emits a session event before it discovers missing credentials,
+        # so this cannot live in the "no events" branch above.
+        raise RunnerError(
+            "dsh 缺少模型凭据（MISSING_CREDENTIAL）。headless profile 使用 "
+            "deepseek-official 路由，需要 API key：\n"
+            "  export DEEPSEEK_API_KEY=... 后重启 bridge，\n"
+            "  或在该 profile 里配置其他已登录的 provider。\n"
+            "（桌面 App 的账号登录不会自动传给 headless profile）"
+        )
     if result.error and not result.text:
         result.ok = False
     return result

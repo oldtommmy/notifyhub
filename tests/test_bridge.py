@@ -264,18 +264,49 @@ class DshRunnerTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.error, "boom")
 
-    def test_missing_credential_raises_actionable_error(self):
+    def test_startup_failure_without_events_is_reported(self):
+        # e.g. a broken profile: dsh dies before emitting any event.
         class Done:
             returncode = 1
             stdout = ""
-            stderr = "dsh: MISSING_CREDENTIAL: no API key"
+            stderr = "dsh: cannot initialise profile"
 
         with patch.object(agents, "_binary", return_value="/usr/bin/dsh"), patch.object(
             agents, "_run", return_value=Done()
         ):
+            result = agents.dsh_runner("", "hi", "/tmp", 10)
+        self.assertFalse(result.ok)
+        self.assertIn("cannot initialise", result.error)
+
+    def test_missing_credential_with_session_event_still_raises(self):
+        # Real dsh emits a session event first, then fails on credentials.
+        # This is the case observed against a freshly created headless profile.
+        done = self.output(
+            [
+                {"type": "session", "sessionId": "session-c", "cwd": "/tmp"},
+                {"type": "status", "phase": "turn_start", "turn": 1},
+                {
+                    "type": "final",
+                    "sessionId": "session-c",
+                    "reason": {
+                        "kind": "error",
+                        "error": {
+                            "message": 'llm-deepseek: no API key for provider route "deepseek-official"',
+                            "code": "MISSING_CREDENTIAL",
+                        },
+                    },
+                    "text": "",
+                },
+            ]
+        )
+        with patch.object(agents, "_binary", return_value="/usr/bin/dsh"), patch.object(
+            agents, "_run", return_value=done
+        ):
             with self.assertRaises(agents.RunnerError) as ctx:
                 agents.dsh_runner("", "hi", "/tmp", 10)
-        self.assertIn("API key", str(ctx.exception))
+        message = str(ctx.exception)
+        self.assertIn("MISSING_CREDENTIAL", message)
+        self.assertIn("DEEPSEEK_API_KEY", message)
 
     def test_resume_passes_session_id(self):
         captured = {}
