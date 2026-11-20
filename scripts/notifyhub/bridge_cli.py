@@ -7,10 +7,13 @@ Flow:
 
 from __future__ import annotations
 
+import os
+import re
 import signal
 import sys
 import threading
 import time
+from pathlib import Path
 
 from . import agents, bridge
 from .channels import feishu_app
@@ -312,7 +315,49 @@ def cmd_bridge_check(args):
 
     workspace = resolve_path(str(settings.get("workspace") or "~"))
     report("workspace", workspace.is_dir(), str(workspace))
+
+    # The headless profile authenticates through apiKeyEnv, which reads the
+    # process environment, not the account login the desktop app uses. A key
+    # sitting in ~/.dsh/.credentials.yaml is not automatically exported.
+    env_key = _headless_api_key_env()
+    if env_key is None:
+        report("模型凭据", True, "headless profile 未声明 apiKeyEnv（用账号登录）")
+    else:
+        imported = bool(os.environ.get(env_key))
+        stored = _stored_credential(env_key)
+        if imported:
+            detail = f"{env_key} 已注入环境"
+        elif stored:
+            detail = f"{env_key} 在 ~/.dsh/.credentials.yaml 里，但未注入环境（用 start_bridge.sh 会自动注入）"
+        else:
+            detail = f"缺少 {env_key}，headless 无法调用模型"
+        report("模型凭据", imported, detail)
+
     return 0 if ok else 1
+
+
+def _headless_api_key_env():
+    """Read apiKeyEnv from the headless profile's patch, if it declares one."""
+    home = Path(os.environ.get("DSH_HOME") or (Path.home() / ".dsh"))
+    patch = home / "profiles" / "headless" / "cordis.patch.yml"
+    try:
+        text = patch.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r"^\s*apiKeyEnv:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$", text, re.M)
+    return match.group(1) if match else None
+
+
+def _stored_credential(name):
+    """True when ~/.dsh/.credentials.yaml has a value for this name."""
+    home = Path(os.environ.get("DSH_HOME") or (Path.home() / ".dsh"))
+    path = home / ".credentials.yaml"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    match = re.search(rf"^\s*{re.escape(name)}:\s*\S", text, re.M)
+    return bool(match)
 
 
 def cmd_bridge_owner(args):

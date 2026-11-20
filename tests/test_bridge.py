@@ -570,3 +570,80 @@ class ListenerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class _Args:
+    config = None
+
+
+class CredentialCheckTests(unittest.TestCase):
+    """The headless profile reads apiKeyEnv from the process environment; a key
+    stored in .credentials.yaml is not exported automatically."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.home = Path(self.temp.name)
+        self.profile = self.home / "profiles" / "headless"
+        self.profile.mkdir(parents=True)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def write_patch(self, env_name):
+        (self.profile / "cordis.patch.yml").write_text(
+            "providers:\n  qwen:\n    apiKeyEnv: %s\n" % env_name, encoding="utf-8"
+        )
+
+    def write_credentials(self, name):
+        (self.home / ".credentials.yaml").write_text(
+            "refs:\n  %s: sk-test-value\n" % name, encoding="utf-8"
+        )
+
+    def test_reads_api_key_env_name(self):
+        self.write_patch("QWEN_API_KEY")
+        with patch.dict("os.environ", {"DSH_HOME": str(self.home)}):
+            self.assertEqual(bridge_cli._headless_api_key_env(), "QWEN_API_KEY")
+
+    def test_no_patch_returns_none(self):
+        with patch.dict("os.environ", {"DSH_HOME": str(self.home)}):
+            self.assertIsNone(bridge_cli._headless_api_key_env())
+
+    def test_stored_credential_detected(self):
+        self.write_credentials("QWEN_API_KEY")
+        with patch.dict("os.environ", {"DSH_HOME": str(self.home)}):
+            self.assertTrue(bridge_cli._stored_credential("QWEN_API_KEY"))
+
+    def test_missing_credential_is_false(self):
+        self.write_credentials("OTHER_KEY")
+        with patch.dict("os.environ", {"DSH_HOME": str(self.home)}):
+            self.assertFalse(bridge_cli._stored_credential("QWEN_API_KEY"))
+
+    def test_check_flags_stored_but_not_exported_key(self):
+        self.write_patch("QWEN_API_KEY")
+        self.write_credentials("QWEN_API_KEY")
+        config = config_with()
+        env = {k: v for k, v in __import__("os").environ.items() if k != "QWEN_API_KEY"}
+        env["DSH_HOME"] = str(self.home)
+        with patch.dict("os.environ", env, clear=True), patch.object(
+            bridge_cli, "load_config", return_value=config
+        ), patch.object(bridge_cli, "resolve_path", side_effect=lambda v: self.home):
+            buffer = __import__("io").StringIO()
+            with __import__("contextlib").redirect_stdout(buffer):
+                code = bridge_cli.cmd_bridge_check(_Args())
+        output = buffer.getvalue()
+        self.assertEqual(code, 1)
+        self.assertIn("未注入环境", output)
+
+    def test_check_passes_when_key_exported(self):
+        self.write_patch("QWEN_API_KEY")
+        self.write_credentials("QWEN_API_KEY")
+        config = config_with()
+        env = dict(__import__("os").environ)
+        env["DSH_HOME"] = str(self.home)
+        env["QWEN_API_KEY"] = "sk-exported"
+        with patch.dict("os.environ", env, clear=True), patch.object(
+            bridge_cli, "load_config", return_value=config
+        ), patch.object(bridge_cli, "resolve_path", side_effect=lambda v: self.home):
+            buffer = __import__("io").StringIO()
+            with __import__("contextlib").redirect_stdout(buffer):
+                bridge_cli.cmd_bridge_check(_Args())
+        self.assertIn("已注入环境", buffer.getvalue())

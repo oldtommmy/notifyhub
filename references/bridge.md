@@ -106,9 +106,36 @@ bridge 会在续聊前检查该锁，被占用时直接回你一句「该会话�
 - 在 App 里结束那个会话，或者
 - 发 `/new` 开一个新会话
 
-### 首次运行
+### 首次运行与模型凭据
 
-`dsh` 第一次跑 `--profile headless` 会自动创建 profile。隔离的 `DSH_HOME` 里没有 API key 会报 `MISSING_CREDENTIAL`——bridge 会把这条错误原文回给你，按提示在 DSH 的 Models 页面配置即可。
+`dsh` 第一次跑 `--profile headless` 会自动创建 profile，默认走 `deepseek-official`
+路由，需要 `DEEPSEEK_API_KEY`。
+
+**桌面 App 的登录态不会传给 headless profile。** 桌面版通常用账号登录或别的 provider，
+而 headless 读的是 `apiKeyEnv` 指定的**进程环境变量**。所以会出现「App 里好好的，
+命令行报 MISSING_CREDENTIAL」。
+
+两种解法：
+
+**A. 复用桌面已配置的 provider**（推荐，不用新申请 key）
+
+把 desktop profile 的 provider 段复制到 headless：
+
+```bash
+cp ~/.dsh/profiles/desktop/cordis.patch.yml ~/.dsh/profiles/headless/cordis.patch.yml
+```
+
+**B. 直接给 headless 配一个 API key**
+
+```bash
+export DEEPSEEK_API_KEY=...
+```
+
+`dsh --profile headless "回复：OK"` 能返回结果，bridge 就一定能用。
+
+> 注意：key 存在 `~/.dsh/.credentials.yaml` 里**不等于**已注入环境。如果 patch 里写了
+> `apiKeyEnv: QWEN_API_KEY`，就必须真的 `export QWEN_API_KEY`。`bridge check` 的
+> 「模型凭据」一项会区分这两种情况，`start_bridge.sh` 会自动从凭据文件读取并注入。
 
 ### 并发
 
@@ -122,6 +149,6 @@ bridge 会在续聊前检查该锁，被占用时直接回你一句「该会话�
 | 一直回「未授权」 | `allow_open_ids` 里没有你的 open_id |
 | `bridge check` 报 lark-oapi 缺失 | `pip install 'lark-oapi>=1.8'` |
 | 回「该会话正在被桌面 App 占用」 | 见上面的会话锁说明 |
-| 回 `MISSING_CREDENTIAL` | DSH 还没配模型 |
+| 回 `MISSING_CREDENTIAL` / `no credential for provider route` | headless profile 没拿到 key，见上面「模型凭据」 |
 
 日志在 `~/.local/state/notifyhub/notifyhub.log`，会话映射在 `~/.local/state/notifyhub/bridge_sessions.json`（mode 600）。
