@@ -513,7 +513,7 @@ class ResultNotificationTests(unittest.TestCase):
 
 
 class ListenerTests(unittest.TestCase):
-    def make_event(self, sender_open_id="ou_allowed", text="hi", message_type="text"):
+    def make_event(self, sender_open_id="ou_allowed", text="hi", message_type="text", message_id="om_1"):
         class SenderId:
             open_id = sender_open_id
 
@@ -521,7 +521,6 @@ class ListenerTests(unittest.TestCase):
             sender_id = SenderId()
 
         class Message:
-            message_id = "om_1"
             chat_id = "chat-1"
             chat_type = "p2p"
             content = json.dumps({"text": text})
@@ -529,6 +528,7 @@ class ListenerTests(unittest.TestCase):
         # Assign after the class body: a class-scope name cannot reference the
         # enclosing function parameter of the same name.
         Message.message_type = message_type
+        Message.message_id = message_id
 
         class Data:
             sender = Sender()
@@ -569,6 +569,43 @@ class ListenerTests(unittest.TestCase):
         listener = FeishuListener(config_with(), lambda **kw: received.append(kw))
         listener.handle_event(self.make_event(message_type="image"))
         self.assertEqual(received, [])
+
+    def test_redelivered_message_runs_once(self):
+        # Feishu re-pushes an event when its ack is slow; a second run would
+        # burn tokens and replay tools.
+        from notifyhub.feishu_listener import FeishuListener
+
+        received = []
+        listener = FeishuListener(config_with(), lambda **kw: received.append(kw))
+        listener.handle_event(self.make_event())
+        listener.handle_event(self.make_event())
+        self.assertEqual(len(received), 1)
+
+    def test_distinct_message_ids_both_run(self):
+        from notifyhub.feishu_listener import FeishuListener
+
+        received = []
+        listener = FeishuListener(config_with(), lambda **kw: received.append(kw))
+        listener.handle_event(self.make_event())
+        listener.handle_event(self.make_event(message_id="om_2"))
+        self.assertEqual(len(received), 2)
+
+    def test_seen_window_is_bounded(self):
+        from notifyhub.feishu_listener import SeenMessages
+
+        seen = SeenMessages(capacity=3)
+        for i in range(5):
+            self.assertTrue(seen.check_and_add("om_%d" % i))
+        self.assertFalse(seen.check_and_add("om_4"))
+        # The oldest id has been evicted, so it is treated as new again.
+        self.assertTrue(seen.check_and_add("om_0"))
+
+    def test_missing_message_id_is_not_dropped(self):
+        from notifyhub.feishu_listener import SeenMessages
+
+        seen = SeenMessages()
+        self.assertTrue(seen.check_and_add(""))
+        self.assertTrue(seen.check_and_add(""))
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ Two hard rules enforced here:
 
 from __future__ import annotations
 
+import collections
 import json
 import threading
 
@@ -64,6 +65,37 @@ def bot_mentions_text(text):
     return cleaned
 
 
+class SeenMessages:
+    """Remembers recently handled message ids so a redelivery is ignored.
+
+    Feishu redelivers an event when its acknowledgement does not arrive in
+    time (a flaky network, or a client that stalls). Without this the same
+    message runs the agent twice, which burns tokens and can replay tools.
+    The window is small and bounded: a redelivery arrives within seconds, so
+    keeping the last few hundred ids is plenty.
+    """
+
+    def __init__(self, capacity=512):
+        self.capacity = capacity
+        self._order = collections.deque()
+        self._seen = set()
+        self._lock = threading.Lock()
+
+    def check_and_add(self, message_id):
+        """True the first time an id is seen, False on any repeat."""
+        if not message_id:
+            # Nothing to dedupe on; let it through rather than drop a message.
+            return True
+        with self._lock:
+            if message_id in self._seen:
+                return False
+            self._seen.add(message_id)
+            self._order.append(message_id)
+            while len(self._order) > self.capacity:
+                self._seen.discard(self._order.popleft())
+            return True
+
+
 class FeishuListener:
     def __init__(self, config, on_message, logger=None, reply=None):
         self.config = config
@@ -72,6 +104,7 @@ class FeishuListener:
         self.logger = logger
         self._thread = None
         self._client = None
+        self._seen = SeenMessages()
 
     # ------------------------------------------------------------- validation
 
@@ -96,6 +129,15 @@ class FeishuListener:
         chat_id = str(getattr(message, "chat_id", "") or "")
         message_id = str(getattr(message, "message_id", "") or "")
         chat_type = str(getattr(message, "chat_type", "") or "")
+
+        if not self._seen.check_and_add(message_id):
+            if self.logger:
+                self.logger.info(
+                    "bridge: ignoring redelivered message_id=%s chat=%s",
+                    message_id,
+                    chat_id,
+                )
+            return
 
         if not is_allowed(sender_id, self.config):
             # Log the refusal without echoing message content.
