@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.1
+
+### Documentation
+
+- **`HANDOFF.md`**: the bridge is paused on `feature/feishu-bridge`. This records
+  what it is, why each design decision was made (long connection instead of a
+  webhook, why a session cannot be resumed concurrently, why an unanswered send
+  is never retried), every trap already paid for, and what is still broken —
+  chiefly that `codex exec` fails on this machine's `~/.codex/config.toml`.
+
+## 0.9.0
+
 ## 0.8.1
 
 ### Fixed

@@ -195,6 +195,9 @@ notifyhub bridge logs -n 50          # 看日志
 
 变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
+飞书远程续聊（bridge）当前**暂停开发**，功能可用但未合并到 `main`。
+设计理由、已知问题和接手须知见 [HANDOFF.md](HANDOFF.md)。
+
 ## 目录结构
 
 ```text
