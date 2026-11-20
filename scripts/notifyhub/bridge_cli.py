@@ -50,13 +50,15 @@ def build_result_notification(task, result, config):
 
     limit = int(settings.get("max_message_chars", 3000))
     body = shorten_markdown(result.text or result.error, limit)
+    topic = result.task.topic or bridge.DEFAULT_TOPIC
+    topic_label = "main" if topic == bridge.DEFAULT_TOPIC else topic
 
     return Notification(
         source=result.task.agent,
         event="BridgeResult",
         status_text=status,
         color=color,
-        title="飞书远程续聊",
+        title=f"飞书远程续聊 · {topic_label}",
         project="",
         session_id=result.session_id,
         model="",
@@ -167,9 +169,23 @@ class BridgeService:
         if kind == "status":
             self._reply(message_id, self._status_text(chat_id))
             return
+        if kind == "topics":
+            self._reply(message_id, self._topics_text(chat_id))
+            return
+        if kind == "switch":
+            return self._switch_topic(message_id, chat_id, payload)
+        if kind == "drop":
+            return self._drop_topic(message_id, chat_id, payload)
         if kind == "new":
-            had = self.session_map.reset(chat_id)
-            self._reply(message_id, "已开启新会话。" if had else "本来就没有进行中的会话。")
+            topic = self.session_map.active_topic(chat_id)
+            had = self.session_map.reset(chat_id, topic)
+            label = self._topic_label(topic)
+            self._reply(
+                message_id,
+                f"已清空话题 {label} 的上下文，下次发消息会开新会话。"
+                if had
+                else f"话题 {label} 本来就没有进行中的会话。",
+            )
             return
 
         agent, prompt = payload
@@ -180,55 +196,120 @@ class BridgeService:
             self._reply(message_id, f"本机找不到 {agent}。")
             return
 
+        topic = self.session_map.active_topic(chat_id)
         task = bridge.Task(
             message_id=message_id,
             chat_id=chat_id,
             sender_id=sender_id,
             prompt=prompt,
             agent=agent,
+            topic=topic,
         )
 
-        key = (chat_id, agent)
+        key = (chat_id, topic, agent)
         if settings.get("reject_when_busy", True) and self.guard.busy(key):
-            self._reply(message_id, f"{agent} 还在处理上一条消息，请等它结束或发 /new。")
+            self._reply(message_id, f"{agent} 还在处理这个话题的上一条消息，请等它结束。")
             return
         if settings.get("reject_when_busy", True) and not self.guard.acquire(key):
-            self._reply(message_id, f"{agent} 还在处理上一条消息，请稍后。")
+            self._reply(message_id, f"{agent} 还在处理这个话题的上一条消息，请稍后。")
             return
 
         if replies.get("ack", True):
             position = self.worker.pending() + 1
             suffix = "" if position <= 1 else f"（前面还有 {position - 1} 条）"
-            self._reply(message_id, f"收到，已交给 {agent} 处理{suffix}。完成后会回消息。")
+            self._reply(
+                message_id,
+                f"收到（话题 {self._topic_label(topic)}），已交给 {agent} 处理{suffix}。",
+            )
 
         self.worker.submit(task)
 
+    # --------------------------------------------------------------- topics
+
+    @staticmethod
+    def _topic_label(topic):
+        return "main" if topic == bridge.DEFAULT_TOPIC else topic
+
+    def _switch_topic(self, message_id, chat_id, name):
+        """Switch to a topic, creating it implicitly when it is new."""
+        if name == bridge.DEFAULT_TOPIC:
+            self.session_map.set_active_topic(chat_id, bridge.DEFAULT_TOPIC)
+            self._reply(message_id, "已切回 main 话题。")
+            return
+
+        existed = name in self.session_map.topics(chat_id)
+        self.session_map.set_active_topic(chat_id, name)
+        if existed:
+            self._reply(message_id, f"已切到话题 {name}。")
+        else:
+            self._reply(message_id, f"已新建并切到话题 {name}，直接发消息开始吧。")
+
+    def _drop_topic(self, message_id, chat_id, name):
+        if name == bridge.DEFAULT_TOPIC:
+            self._reply(message_id, "main 话题不能删除；可以用 /new 清空它的上下文。")
+            return
+        if name not in self.session_map.topics(chat_id):
+            self._reply(message_id, f"没有话题 {name}。")
+            return
+        self.session_map.drop_topic(chat_id, name)
+        active = self.session_map.active_topic(chat_id)
+        self._reply(
+            message_id,
+            f"已删除话题 {name}，当前话题：{self._topic_label(active)}。",
+        )
+
+    def _topics_text(self, chat_id):
+        active = self.session_map.active_topic(chat_id)
+        lines = ["话题列表："]
+        for name in self.session_map.topics(chat_id):
+            label = self._topic_label(name)
+            marker = "→" if name == active else " "
+            sessions = []
+            for agent in ("dsh", "codex"):
+                if self.session_map.get(chat_id, agent, name):
+                    sessions.append(agent)
+            detail = "（" + ", ".join(sessions) + "）" if sessions else "（空）"
+            lines.append(f"{marker} {label} {detail}")
+        lines.append("")
+        lines.append("/topic <名字> 切换或新建")
+        return "\n".join(lines)
+
     def _status_text(self, chat_id):
-        lines = ["当前会话："]
+        topic = self.session_map.active_topic(chat_id)
+        lines = [f"当前话题：{self._topic_label(topic)}", "", "会话："]
         found = False
         for agent in ("dsh", "codex"):
-            session_id = self.session_map.get(chat_id, agent)
+            session_id = self.session_map.get(chat_id, agent, topic)
             if session_id:
                 found = True
                 lines.append(f"- {agent}: {session_id}")
         if not found:
             lines.append("- 还没有会话，直接发消息就会新建")
+
         active = self.guard.active()
         if active:
             lines.append("")
             lines.append("运行中：")
-            for (chat, agent) in active:
-                lines.append(f"- {agent}（chat {chat[:8]}…）")
+            for (chat, run_topic, agent) in active:
+                lines.append(f"- {agent}（话题 {self._topic_label(run_topic)}）")
         lines.append("")
         lines.append(f"排队中：{self.worker.pending()} 条")
+        lines.append(f"话题数：{len(self.session_map.topics(chat_id))}（/topics 查看）")
         return "\n".join(lines)
 
     # -------------------------------------------------------------- worker
 
     def _handle(self, task):
-        key = (task.chat_id, task.agent)
+        # Must match the key used in _on_message, or release() never clears it
+        # and the topic stays permanently "busy".
+        topic = task.topic or bridge.DEFAULT_TOPIC
+        key = (task.chat_id, topic, task.agent)
         self.logger.info(
-            "bridge: running agent=%s chat=%s len=%d", task.agent, task.chat_id, len(task.prompt)
+            "bridge: running agent=%s topic=%s chat=%s len=%d",
+            task.agent,
+            topic,
+            task.chat_id,
+            len(task.prompt),
         )
         try:
             result = bridge.run_task(task, self.config, self.session_map, self.logger)

@@ -155,8 +155,9 @@ python3 scripts/notifyhub.py bridge check
 python3 scripts/notifyhub.py bridge start
 ```
 
-手机上：直接发消息 = 默认 agent 续聊；`@codex ...` 切换 agent；`/new` 开新会话；
-`/status` 看会话；`/help` 看帮助。
+手机上：直接发消息 = 续聊当前话题；`@codex ...` 这一条切 agent；
+**`/topic 名字` = 在一个私聊里开多个互不相干的对话**；`/topics` 看列表；
+`/new` 清空当前话题；`/status`、`/help`。
 
 > 这是一个远程命令执行入口。`allow_open_ids` **默认拒绝所有人**，留空谁也用不了。
 > 完整安全说明和已知限制见 [references/bridge.md](references/bridge.md)。

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- **Topics: several independent conversations in one Feishu chat.** `/topic <name>`
+  switches to a topic, creating it if new; `/topics` lists them; `/del <name>`
+  removes one. Sessions are keyed by `(chat, topic, agent)`, so unrelated work no
+  longer shares context and dsh/codex keep separate histories per topic.
+- `/new` now clears only the active topic, leaving other topics untouched.
+- Acknowledgements, result-card titles, and `/status` all name the active topic.
+- Existing session files without a topic layer load as the `main` topic.
+
+### Fixed
+
+- The run lock was acquired with `(chat, topic, agent)` but released with
+  `(chat, agent)`, so a topic stayed permanently "busy" after its first task.
+- The session map could not read back its own new format, losing sessions on
+  restart.
+
 ## 0.3.0
 
 ### Added

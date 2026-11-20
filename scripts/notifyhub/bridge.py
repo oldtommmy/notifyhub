@@ -30,6 +30,7 @@ class Task:
     sender_id: str
     prompt: str
     agent: str
+    topic: str = ""
     created_at: float = field(default_factory=time.time)
 
 
@@ -47,12 +48,31 @@ class TaskResult:
 
 HELP_TEXT = """notifyhub 远程续聊
 
-直接发消息 → 用默认 agent（{default}）续聊当前会话
-@dsh <内容> → 切到 dsh
-@codex <内容> → 切到 codex
-/new → 开一个新会话（忘掉上下文）
-/status → 查看当前会话和运行状态
+直接发消息 → 用当前话题继续对话
+@dsh <内容> → 强制用 dsh
+@codex <内容> → 强制用 codex
+
+话题（同一个私聊里开多个独立对话）
+/topic <名字> → 切到该话题，不存在就新建
+/topics → 列出所有话题
+/del <名字> → 删除话题
+/new → 清空当前话题的上下文
+
+/status → 查看当前话题和运行状态
 /help → 显示这条帮助"""
+
+
+def normalize_topic(name):
+    """Sanitise a topic name: no whitespace, no path separators."""
+    value = " ".join(str(name or "").split())
+    value = value.strip().lstrip("#").strip()
+    if not value:
+        return ""
+    if len(value) > 32:
+        value = value[:32]
+    if value in ("/", ".", ".."):
+        return ""
+    return value
 
 
 def parse_command(text, config):
@@ -72,6 +92,23 @@ def parse_command(text, config):
         return "new", None
     if lowered in ("/status", "status"):
         return "status", None
+    if lowered in ("/topics", "/topic", "/ls"):
+        return "topics", None
+    if lowered.startswith("/topic "):
+        name = normalize_topic(raw[len("/topic ") :])
+        if not name:
+            raise BridgeDenied("话题名不能为空")
+        return "switch", name
+    if lowered.startswith("/use "):
+        name = normalize_topic(raw[len("/use ") :])
+        if not name:
+            raise BridgeDenied("话题名不能为空")
+        return "switch", name
+    if lowered.startswith("/del "):
+        name = normalize_topic(raw[len("/del ") :])
+        if not name:
+            raise BridgeDenied("话题名不能为空")
+        return "drop", name
 
     bridge = config.get("bridge") or {}
     prefixes = bridge.get("prefixes") or {}
@@ -104,7 +141,7 @@ def parse_command(text, config):
 
 def help_text(config):
     default = str((config.get("bridge") or {}).get("default_agent") or "dsh")
-    return HELP_TEXT.format(default=default)
+    return HELP_TEXT + f"\n\n默认 agent: {default}"
 
 
 # ------------------------------------------------------------------- 白名单
@@ -127,13 +164,22 @@ def is_allowed(sender_id, config):
 # -------------------------------------------------------------- 会话映射表
 
 
+DEFAULT_TOPIC = "main"
+
+
 class SessionMap:
-    """chat_id -> {agent -> dsh/codex session id}."""
+    """(chat_id, topic) -> {agent -> dsh/codex session id}.
+
+    One Feishu chat can host several independent conversations ("topics"), so
+    unrelated work does not share context. Each topic keeps its own dsh and
+    codex session, and the chat remembers which topic is currently active.
+    """
 
     def __init__(self, path, logger=None):
         self.path = resolve_path(str(path))
         self.logger = logger
         self._data = {}
+        self._active = {}
         self._generation = {}
         self._lock = threading.Lock()
         self._load()
@@ -144,15 +190,52 @@ class SessionMap:
                 data = json.load(handle)
         except (OSError, ValueError):
             return
-        if isinstance(data, dict):
-            self._data = data
+        if not isinstance(data, dict):
+            return
+
+        # Current format: {"topics": {chat: {topic: {agent: session}}}, "active": {...}}
+        if "topics" in data:
+            topics = data.get("topics")
+            if isinstance(topics, dict):
+                for chat_id, per_topic in topics.items():
+                    if not isinstance(per_topic, dict):
+                        continue
+                    self._data[chat_id] = {
+                        str(topic): dict(sessions)
+                        for topic, sessions in per_topic.items()
+                        if isinstance(sessions, dict)
+                    }
+            active = data.get("active")
+            if isinstance(active, dict):
+                self._active = {chat: str(topic) for chat, topic in active.items()}
+            return
+
+        # Legacy {chat: {agent: session}} files are read as topic "main".
+        for chat_id, value in data.items():
+            if not isinstance(value, dict):
+                continue
+            if _looks_like_topic_map(value):
+                self._data[chat_id] = {
+                    topic: dict(sessions)
+                    for topic, sessions in value.items()
+                    if isinstance(sessions, dict)
+                }
+            else:
+                self._data[chat_id] = {DEFAULT_TOPIC: dict(value)}
 
     def _save(self):
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             temp = self.path.with_name(self.path.name + ".tmp")
             temp.write_text(
-                json.dumps(self._data, ensure_ascii=False, indent=2),
+                json.dumps(
+                    {
+                        "topics": self._data,
+                        "active": self._active,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
                 encoding="utf-8",
             )
             os.replace(temp, self.path)
@@ -164,12 +247,37 @@ class SessionMap:
             if self.logger:
                 self.logger.warning("cannot write session map %s: %s", self.path, error)
 
-    def get(self, chat_id, agent):
-        with self._lock:
-            return (self._data.get(chat_id) or {}).get(agent, "")
+    # ---------------------------------------------------------------- topics
 
-    def set(self, chat_id, agent, session_id, generation=None):
-        """Record a session id.
+    def active_topic(self, chat_id):
+        with self._lock:
+            return self._active.get(chat_id) or DEFAULT_TOPIC
+
+    def set_active_topic(self, chat_id, topic):
+        with self._lock:
+            if topic == DEFAULT_TOPIC:
+                self._active.pop(chat_id, None)
+            else:
+                self._active[chat_id] = topic
+            self._save()
+
+    def topics(self, chat_id):
+        """Topic names for this chat, default first, then alphabetical."""
+        with self._lock:
+            names = set((self._data.get(chat_id) or {}).keys())
+        names.add(DEFAULT_TOPIC)
+        ordered = [DEFAULT_TOPIC] + sorted(name for name in names if name != DEFAULT_TOPIC)
+        return ordered
+
+    # -------------------------------------------------------------- sessions
+
+    def get(self, chat_id, agent, topic=None):
+        topic = topic or self.active_topic(chat_id)
+        with self._lock:
+            return ((self._data.get(chat_id) or {}).get(topic) or {}).get(agent, "")
+
+    def set(self, chat_id, agent, session_id, generation=None, topic=None):
+        """Record a session id for a topic.
 
         When `generation` is given, the write is skipped if `/new` ran in the
         meantime, so a run that finishes after a reset cannot resurrect the old
@@ -177,33 +285,74 @@ class SessionMap:
         """
         if not session_id:
             return
+        topic = topic or self.active_topic(chat_id)
         with self._lock:
-            if generation is not None and self._generation.get(chat_id, 0) != generation:
+            key = (chat_id, topic)
+            if generation is not None and self._generation.get(key, 0) != generation:
                 if self.logger:
                     self.logger.info(
-                        "bridge: dropping stale session %s for chat %s (reset during run)",
+                        "bridge: dropping stale session %s for %s/%s (reset during run)",
                         session_id,
                         chat_id,
+                        topic,
                     )
                 return
-            self._data.setdefault(chat_id, {})[agent] = session_id
+            self._data.setdefault(chat_id, {}).setdefault(topic, {})[agent] = session_id
             self._save()
 
-    def generation(self, chat_id):
+    def generation(self, chat_id, topic=None):
+        topic = topic or self.active_topic(chat_id)
         with self._lock:
-            return self._generation.get(chat_id, 0)
+            return self._generation.get((chat_id, topic), 0)
 
-    def reset(self, chat_id):
+    def reset(self, chat_id, topic=None):
+        """Forget the sessions of one topic (the active one by default)."""
+        topic = topic or self.active_topic(chat_id)
         with self._lock:
-            self._generation[chat_id] = self._generation.get(chat_id, 0) + 1
-            had = self._data.pop(chat_id, None)
+            key = (chat_id, topic)
+            self._generation[key] = self._generation.get(key, 0) + 1
+            per_topic = self._data.get(chat_id) or {}
+            had = per_topic.pop(topic, None)
+            if had is not None:
+                self._save()
+            return bool(had)
+
+    def drop_topic(self, chat_id, topic):
+        """Remove a topic entirely and fall back to the default one."""
+        with self._lock:
+            key = (chat_id, topic)
+            self._generation[key] = self._generation.get(key, 0) + 1
+            per_topic = self._data.get(chat_id) or {}
+            had = per_topic.pop(topic, None)
+            if not per_topic:
+                self._data.pop(chat_id, None)
+            if self._active.get(chat_id) == topic:
+                self._active.pop(chat_id, None)
             if had is not None:
                 self._save()
             return bool(had)
 
     def all_sessions(self):
         with self._lock:
-            return {chat: dict(per) for chat, per in self._data.items()}
+            return {
+                chat: {topic: dict(sessions) for topic, sessions in per.items()}
+                for chat, per in self._data.items()
+            }
+
+    def active_map(self):
+        with self._lock:
+            return dict(self._active)
+
+
+def _looks_like_topic_map(value):
+    """True for {topic: {agent: session}} as opposed to {agent: session}."""
+    known_agents = {"dsh", "codex"}
+    keys = [key for key in value.keys() if isinstance(key, str)]
+    if not keys:
+        return False
+    if any(key in known_agents for key in keys):
+        return False
+    return all(isinstance(item, dict) for item in value.values())
 
 
 # ------------------------------------------------------------ 会话锁与串行
@@ -286,9 +435,10 @@ def run_task(task, config, session_map, logger=None, runner=None):
     agent = task.agent
     workspace = str(resolve_path(str(bridge.get("workspace") or "~")))
     timeout = float(bridge.get("timeout_seconds", 1800))
-    session_id = session_map.get(task.chat_id, agent) if session_map else ""
+    topic = task.topic or DEFAULT_TOPIC
+    session_id = session_map.get(task.chat_id, agent, topic) if session_map else ""
     # Snapshot the generation so a /new issued while this run is in flight wins.
-    generation = session_map.generation(task.chat_id) if session_map else None
+    generation = session_map.generation(task.chat_id, topic) if session_map else None
 
     if agent == "dsh" and agents.session_in_use(agent, session_id):
         return TaskResult(
@@ -333,7 +483,7 @@ def run_task(task, config, session_map, logger=None, runner=None):
         )
 
     if session_map and result.session_id:
-        session_map.set(task.chat_id, agent, result.session_id, generation=generation)
+        session_map.set(task.chat_id, agent, result.session_id, generation=generation, topic=topic)
 
     return TaskResult(
         task=task,

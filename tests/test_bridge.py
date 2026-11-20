@@ -730,3 +730,166 @@ class ResultSendTargetTests(unittest.TestCase):
         ):
             self.assertTrue(service._reply("om_1", "hi"))
         self.assertEqual(calls["n"], 2)
+
+
+class TopicTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.path = str(Path(self.temp.name) / "sessions.json")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_default_topic_is_main(self):
+        sessions = bridge.SessionMap(self.path)
+        self.assertEqual(sessions.active_topic("c1"), bridge.DEFAULT_TOPIC)
+
+    def test_topics_are_isolated(self):
+        sessions = bridge.SessionMap(self.path)
+        sessions.set("c1", "dsh", "session-main", topic="main")
+        sessions.set("c1", "dsh", "session-front", topic="前端")
+        self.assertEqual(sessions.get("c1", "dsh", "main"), "session-main")
+        self.assertEqual(sessions.get("c1", "dsh", "前端"), "session-front")
+
+    def test_switch_changes_which_session_is_used(self):
+        sessions = bridge.SessionMap(self.path)
+        sessions.set("c1", "dsh", "session-a", topic="A")
+        sessions.set("c1", "dsh", "session-b", topic="B")
+        sessions.set_active_topic("c1", "A")
+        self.assertEqual(sessions.get("c1", "dsh"), "session-a")
+        sessions.set_active_topic("c1", "B")
+        self.assertEqual(sessions.get("c1", "dsh"), "session-b")
+
+    def test_topics_are_persisted(self):
+        sessions = bridge.SessionMap(self.path)
+        sessions.set("c1", "dsh", "session-x", topic="X")
+        sessions.set_active_topic("c1", "X")
+        reloaded = bridge.SessionMap(self.path)
+        self.assertEqual(reloaded.get("c1", "dsh"), "session-x")
+        self.assertEqual(reloaded.active_topic("c1"), "X")
+
+    def test_topic_list_is_default_first(self):
+        sessions = bridge.SessionMap(self.path)
+        sessions.set("c1", "dsh", "s", topic="zeta")
+        sessions.set("c1", "dsh", "s2", topic="alpha")
+        self.assertEqual(sessions.topics("c1"), ["main", "alpha", "zeta"])
+
+    def test_reset_only_clears_one_topic(self):
+        sessions = bridge.SessionMap(self.path)
+        sessions.set("c1", "dsh", "s-main", topic="main")
+        sessions.set("c1", "dsh", "s-front", topic="前端")
+        sessions.set_active_topic("c1", "前端")
+        self.assertTrue(sessions.reset("c1"))
+        self.assertEqual(sessions.get("c1", "dsh", "前端"), "")
+        self.assertEqual(sessions.get("c1", "dsh", "main"), "s-main")
+
+    def test_drop_topic_falls_back_to_main(self):
+        sessions = bridge.SessionMap(self.path)
+        sessions.set("c1", "dsh", "s-front", topic="前端")
+        sessions.set_active_topic("c1", "前端")
+        self.assertTrue(sessions.drop_topic("c1", "前端"))
+        self.assertEqual(sessions.active_topic("c1"), bridge.DEFAULT_TOPIC)
+        self.assertEqual(sessions.get("c1", "dsh", "前端"), "")
+
+    def test_legacy_file_loads_as_main(self):
+        Path(self.path).write_text(
+            json.dumps({"chat-1": {"dsh": "session-old"}}), encoding="utf-8"
+        )
+        sessions = bridge.SessionMap(self.path)
+        self.assertEqual(sessions.get("chat-1", "dsh"), "session-old")
+
+    def test_generation_is_per_topic(self):
+        sessions = bridge.SessionMap(self.path)
+        gen_main = sessions.generation("c1", "main")
+        sessions.set("c1", "dsh", "s-front", topic="前端")
+        sessions.reset("c1", "前端")
+        # Resetting another topic must not invalidate this one.
+        sessions.set("c1", "dsh", "s-new", generation=gen_main, topic="main")
+        self.assertEqual(sessions.get("c1", "dsh", "main"), "s-new")
+
+
+class TopicCommandTests(unittest.TestCase):
+    def test_topic_switch_parsed(self):
+        kind, name = bridge.parse_command("/topic 前端", config_with())
+        self.assertEqual(kind, "switch")
+        self.assertEqual(name, "前端")
+
+    def test_use_is_alias(self):
+        self.assertEqual(bridge.parse_command("/use 前端", config_with())[0], "switch")
+
+    def test_topics_listing(self):
+        self.assertEqual(bridge.parse_command("/topics", config_with())[0], "topics")
+
+    def test_delete_topic(self):
+        kind, name = bridge.parse_command("/del 前端", config_with())
+        self.assertEqual(kind, "drop")
+        self.assertEqual(name, "前端")
+
+    def test_bare_topic_lists_instead_of_switching(self):
+        # "/topic" with no argument means "show me the topics", which is the
+        # least surprising reading of an accidental empty message.
+        self.assertEqual(bridge.parse_command("/topic", config_with())[0], "topics")
+        self.assertEqual(bridge.parse_command("/topic   ", config_with())[0], "topics")
+
+    def test_topic_name_is_sanitised(self):
+        self.assertEqual(bridge.normalize_topic("  #前端  "), "前端")
+        self.assertEqual(bridge.normalize_topic("a   b"), "a b")
+        self.assertEqual(bridge.normalize_topic(".."), "")
+        self.assertEqual(len(bridge.normalize_topic("x" * 50)), 32)
+
+
+class TopicRunIsolationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.sessions = bridge.SessionMap(str(Path(self.temp.name) / "s.json"))
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def run_in_topic(self, topic, prompt):
+        task = bridge.Task(
+            message_id="m", chat_id="c1", sender_id="ou", prompt=prompt,
+            agent="dsh", topic=topic,
+        )
+        seen = {}
+
+        def runner(session_id, prompt, cwd, timeout, **kwargs):
+            seen["session"] = session_id
+            return agents.RunResult(ok=True, text="ok", session_id=session_id or f"new-{topic}")
+
+        bridge.run_task(task, config_with(), self.sessions, runner=runner)
+        return seen["session"]
+
+    def test_topics_do_not_share_sessions(self):
+        self.assertEqual(self.run_in_topic("main", "a"), "")
+        self.assertEqual(self.run_in_topic("前端", "b"), "")
+        self.assertEqual(self.run_in_topic("main", "c"), "new-main")
+        self.assertEqual(self.run_in_topic("前端", "d"), "new-前端")
+
+    def test_guard_key_matches_between_submit_and_release(self):
+        # A mismatch here leaks the run lock and makes the topic permanently
+        # busy, which is exactly what happened before this test existed.
+        from unittest.mock import MagicMock
+
+        config = config_with()
+        service = bridge_cli.BridgeService.__new__(bridge_cli.BridgeService)
+        service.config = config
+        service.logger = logging.getLogger("t")
+        service.session_map = bridge.SessionMap(
+            str(Path(tempfile.mkdtemp()) / "s.json")
+        )
+        service.guard = bridge.RunGuard()
+        service._send = MagicMock()
+        service._reply = MagicMock()
+
+        task = bridge.Task(
+            message_id="m", chat_id="c1", sender_id="ou", prompt="hi",
+            agent="dsh", topic="前端",
+        )
+        self.assertTrue(service.guard.acquire(("c1", "前端", "dsh")))
+        with patch.object(
+            bridge, "run_task",
+            return_value=bridge.TaskResult(task=task, ok=True, text="ok"),
+        ):
+            service._handle(task)
+        self.assertEqual(service.guard.active(), {})
