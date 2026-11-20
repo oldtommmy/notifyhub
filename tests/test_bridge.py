@@ -893,3 +893,42 @@ class TopicRunIsolationTests(unittest.TestCase):
         ):
             service._handle(task)
         self.assertEqual(service.guard.active(), {})
+
+
+class InstanceLockTests(unittest.TestCase):
+    """Feishu delivers each event to only one of an app's long connections, so a
+    second bridge silently steals messages. Starting twice must fail loudly."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.settings = {
+            "sessions_path": str(Path(self.temp.name) / "bridge_sessions.json")
+        }
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_second_instance_is_refused(self):
+        first = bridge_cli._acquire_instance_lock(self.settings)
+        try:
+            with self.assertRaises(SystemExit) as ctx:
+                bridge_cli._acquire_instance_lock(self.settings)
+            self.assertIn("已经有一个 bridge 在运行", str(ctx.exception))
+        finally:
+            first.close()
+
+    def test_lock_is_released_on_close(self):
+        first = bridge_cli._acquire_instance_lock(self.settings)
+        first.close()
+        second = bridge_cli._acquire_instance_lock(self.settings)
+        second.close()
+
+    def test_lock_records_pid(self):
+        import os
+
+        handle = bridge_cli._acquire_instance_lock(self.settings)
+        try:
+            lock_path = Path(self.settings["sessions_path"]).with_suffix(".lock")
+            self.assertEqual(lock_path.read_text().strip(), str(os.getpid()))
+        finally:
+            handle.close()

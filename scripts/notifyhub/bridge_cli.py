@@ -339,6 +339,11 @@ class BridgeService:
                 "先填上你自己的 open_id（feishu_probe.py --owner 可以查到）再启动。"
             )
 
+        # Feishu allows several long connections for one app and delivers each
+        # event to only one of them, so a second instance silently steals
+        # messages. Refuse to start instead of splitting traffic.
+        self._lock_handle = _acquire_instance_lock(settings)
+
         self.worker.start()
         self.listener.start()
         self.logger.info(
@@ -368,6 +373,45 @@ class BridgeService:
         finally:
             self.stop()
             self.logger.info("bridge: stopped")
+
+
+def _acquire_instance_lock(settings):
+    """Refuse to run two bridges at once.
+
+    Feishu delivers an event to exactly one of an app's long connections, so a
+    second instance silently swallows messages the first one should have
+    handled. Fail loudly instead.
+    """
+    sessions_path = settings.get("sessions_path") or "~/.local/state/notifyhub/bridge_sessions.json"
+    lock_path = resolve_path(str(sessions_path)).with_suffix(".lock")
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(lock_path, "a+")
+    except OSError as error:
+        raise SystemExit(f"无法创建实例锁 {lock_path}: {error}")
+
+    try:
+        import fcntl
+    except ImportError:  # Windows: no flock, skip the guard
+        return handle
+
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        raise SystemExit(
+            f"已经有一个 bridge 在运行了（锁文件 {lock_path}）。\n"
+            "飞书会把每条消息只投递给其中一个连接，多开会互相抢消息。\n"
+            "先停掉旧的：pkill -f 'notifyhub.py.*bridge start'"
+        )
+    try:
+        handle.seek(0)
+        handle.truncate()
+        handle.write(str(os.getpid()))
+        handle.flush()
+    except OSError:
+        pass
+    return handle
 
 
 def cmd_bridge_start(args):
