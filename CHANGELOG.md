@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+
+- **`/attach`: continue a conversation that already exists on the machine.**
+  The bridge used to know only about sessions it started, so a chat opened in
+  the Mac app could not be resumed from the phone. `/attach` lists recent dsh
+  and codex sessions (title, age, project) and `/attach <n>` binds one to the
+  active topic, after which plain messages continue that conversation.
+- Session discovery reads `~/.dsh/sessions` and `~/.codex/sessions`, honouring
+  `DSH_HOME` / `CODEX_HOME`. Codex titles come from the first real user message,
+  skipping injected environment context.
+
 ## 0.4.0
 
 ### Added

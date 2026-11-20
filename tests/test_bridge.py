@@ -1,6 +1,7 @@
 import json
 import logging
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -932,3 +933,170 @@ class InstanceLockTests(unittest.TestCase):
             self.assertEqual(lock_path.read_text().strip(), str(os.getpid()))
         finally:
             handle.close()
+
+
+class SessionIndexTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.home = Path(self.temp.name)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def make_dsh_session(self, cwd_slug, session_id, title=""):
+        d = self.home / "sessions" / cwd_slug / session_id
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "session.v4.jsonl.zstd").write_bytes(b"")
+        return d
+
+    def test_lists_dsh_sessions(self):
+        from notifyhub import sessions_index as si
+
+        self.make_dsh_session("--Users-x-proj--", "session-aaa")
+        with patch.dict("os.environ", {"DSH_HOME": str(self.home)}):
+            items = si.list_dsh_sessions()
+        self.assertEqual([item.session_id for item in items], ["session-aaa"])
+        self.assertEqual(items[0].agent, "dsh")
+
+    def test_cwd_slug_is_decoded(self):
+        from notifyhub import sessions_index as si
+
+        self.assertEqual(si._dsh_cwd_from_slug("--Users-x-proj--"), "/Users/x/proj")
+        self.assertEqual(si._dsh_cwd_from_slug("bad"), "")
+
+    def test_codex_rollout_is_parsed(self):
+        from notifyhub import sessions_index as si
+
+        day = self.home / "sessions" / "2026" / "11" / "20"
+        day.mkdir(parents=True)
+        rollout = day / "rollout-2026-11-20T10-00-00-abc.jsonl"
+        lines = [
+            json.dumps({"type": "session_meta", "payload": {"id": "sid-1", "cwd": "/w"}}),
+            json.dumps(
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "<environment_context>x"}],
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "修一下这个 bug"}],
+                    },
+                }
+            ),
+        ]
+        rollout.write_text("\n".join(lines), encoding="utf-8")
+
+        with patch.dict("os.environ", {"CODEX_HOME": str(self.home)}):
+            items = si.list_codex_sessions()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].session_id, "sid-1")
+        self.assertEqual(items[0].cwd, "/w")
+        # Injected environment context must not become the title.
+        self.assertEqual(items[0].title, "修一下这个 bug")
+
+    def test_missing_homes_return_empty(self):
+        from notifyhub import sessions_index as si
+
+        with patch.dict("os.environ", {"DSH_HOME": str(self.home), "CODEX_HOME": str(self.home)}):
+            self.assertEqual(si.list_sessions(), [])
+
+
+class AttachCommandTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.sessions = bridge.SessionMap(str(Path(self.temp.name) / "s.json"))
+        config = config_with()
+        service = bridge_cli.BridgeService.__new__(bridge_cli.BridgeService)
+        service.config = config
+        service.logger = logging.getLogger("t")
+        service.session_map = self.sessions
+        service._attach_cache = {}
+        self.replies = []
+        service._reply = lambda message_id, text: self.replies.append(text)
+        self.service = service
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def fake_list(self, *items):
+        from notifyhub import sessions_index as si
+
+        rows = [
+            si.ExistingSession(
+                agent=agent, session_id=session_id, title=title, updated_at=time.time()
+            )
+            for agent, session_id, title in items
+        ]
+        return patch.object(bridge_cli.sessions_index, "list_sessions", return_value=rows)
+
+    def test_attach_by_index(self):
+        with self.fake_list(("dsh", "session-1", "甲"), ("codex", "cx-2", "乙")):
+            self.service._on_message(
+                kind="attach_list", payload=None, message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+            self.service._on_message(
+                kind="attach", payload="2", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertEqual(self.sessions.get("c1", "codex", "main"), "cx-2")
+        self.assertIn("乙", self.replies[-1])
+
+    def test_attach_by_raw_id_infers_agent(self):
+        with self.fake_list():
+            self.service._on_message(
+                kind="attach", payload="session-raw-id", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertEqual(self.sessions.get("c1", "dsh", "main"), "session-raw-id")
+
+    def test_attach_binds_to_active_topic_only(self):
+        self.sessions.set_active_topic("c1", "前端")
+        with self.fake_list(("dsh", "session-x", "x")):
+            self.service._on_message(
+                kind="attach_list", payload=None, message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+            self.service._on_message(
+                kind="attach", payload="1", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertEqual(self.sessions.get("c1", "dsh", "前端"), "session-x")
+        self.assertEqual(self.sessions.get("c1", "dsh", "main"), "")
+
+    def test_out_of_range_index_is_rejected(self):
+        with self.fake_list(("dsh", "session-1", "甲")):
+            self.service._on_message(
+                kind="attach_list", payload=None, message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+            self.service._on_message(
+                kind="attach", payload="9", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertIn("序号要在", self.replies[-1])
+        self.assertEqual(self.sessions.get("c1", "dsh", "main"), "")
+
+    def test_attach_without_listing_explains(self):
+        self.service._on_message(
+            kind="attach", payload="1", message_id="m", chat_id="c1",
+            sender_id="ou", chat_type="p2p",
+        )
+        self.assertIn("/attach", self.replies[-1])
+
+    def test_empty_list_message(self):
+        with self.fake_list():
+            self.service._on_message(
+                kind="attach_list", payload=None, message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertIn("没有找到", self.replies[-1])

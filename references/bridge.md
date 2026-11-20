@@ -87,6 +87,8 @@ python3 scripts/notifyhub.py bridge status   # 查看当前会话
 | `/new` | 清空**当前话题**的上下文 |
 | `/status` | 当前话题、会话 id、排队情况 |
 | `/help` | 帮助 |
+| `/attach` | 列出电脑上已有的 dsh / codex 会话 |
+| `/attach 3` | 把第 3 个会话接到当前话题 |
 
 ## 话题（区分多个对话）
 
@@ -114,6 +116,31 @@ python3 scripts/notifyhub.py bridge status   # 查看当前会话
 可以并行。
 
 > 旧版本的会话文件（没有话题层）会被自动当作 `main` 话题读取，不会丢。
+
+## 续聊电脑上已经开着的对话
+
+bridge 默认只认它自己发起的会话。如果你在 Mac 上已经开了一个对话，
+想用手机接着聊，先把它「接」过来：
+
+```
+/attach          → 列出本机最近的 10 个会话
+1. [dsh] NotifyHub 问题调研与方案
+    12分钟前 · remote_notice
+2. [codex] 修一下这个 bug
+    3分钟前 · mapf_workspace
+...
+/attach 2        → 把第 2 个接到当前话题
+然后直接发消息，就接着那个对话说
+```
+
+- 也可以直接给 id：`/attach session-06dba783-...` 或 `/attach 01a0624a-...`
+- 只影响**当前话题**，其他话题不受影响
+- 会话按 `~/.dsh/sessions` 和 `~/.codex/sessions` 扫描，用 `DSH_HOME` /
+  `CODEX_HOME` 可覆盖
+- codex 标题取自第一条真实的用户消息，环境注入内容会被跳过
+
+**限制**：如果那个会话正被桌面 App 占着（dsh 的 `session.lock`），续聊会被拒绝，
+需要先在 App 里结束它。
 
 ## 安全模型
 

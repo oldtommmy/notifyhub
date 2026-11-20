@@ -59,7 +59,13 @@ HELP_TEXT = """notifyhub 远程续聊
 /new → 清空当前话题的上下文
 
 /status → 查看当前话题和运行状态
-/help → 显示这条帮助"""
+/help → 显示这条帮助
+
+续聊电脑上已开的对话
+/attach → 列出本机已有会话
+/attach <序号> → 把它接到当前话题（序号从 1 开始）
+/attach <session-id> → 也可以直接给 id
+"""
 
 
 def normalize_topic(name):
@@ -109,6 +115,10 @@ def parse_command(text, config):
         if not name:
             raise BridgeDenied("话题名不能为空")
         return "drop", name
+    if lowered in ("/attach", "/sessions", "/list"):
+        return "attach_list", None
+    if lowered.startswith("/attach "):
+        return "attach", raw[len("/attach ") :].strip()
 
     bridge = config.get("bridge") or {}
     prefixes = bridge.get("prefixes") or {}

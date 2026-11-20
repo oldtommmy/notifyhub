@@ -15,7 +15,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import agents, bridge
+from . import agents, bridge, sessions_index
 from .channels import feishu_app
 from .config import load_config, resolve_path
 from .events import Notification
@@ -82,6 +82,7 @@ class BridgeService:
             logger,
         )
         self.guard = bridge.RunGuard()
+        self._attach_cache = {}
         self.worker = bridge.Worker(self._handle, logger, name="bridge-runner")
         self.listener = FeishuListener(
             config,
@@ -176,6 +177,11 @@ class BridgeService:
             return self._switch_topic(message_id, chat_id, payload)
         if kind == "drop":
             return self._drop_topic(message_id, chat_id, payload)
+        if kind == "attach_list":
+            self._reply(message_id, self._attach_list_text(chat_id))
+            return
+        if kind == "attach":
+            return self._attach_session(message_id, chat_id, payload)
         if kind == "new":
             topic = self.session_map.active_topic(chat_id)
             had = self.session_map.reset(chat_id, topic)
@@ -273,6 +279,64 @@ class BridgeService:
         lines.append("")
         lines.append("/topic <名字> 切换或新建")
         return "\n".join(lines)
+
+    # --------------------------------------------------------- attach (电脑上的会话)
+
+    def _attach_list_text(self, chat_id):
+        """List sessions already on this machine so one can be attached."""
+        items = sessions_index.list_sessions(limit=10)
+        # Remember the exact ordering so "/attach 3" means the third row here.
+        self._attach_cache[chat_id] = items
+
+        if not items:
+            return "本机没有找到 dsh / codex 的已有会话。"
+
+        lines = ["本机已有会话（最近 10 个）："]
+        for index, item in enumerate(items, start=1):
+            title = (item.title or "(无标题)")[:28]
+            age = item.age_hours()
+            when = f"{age*60:.0f}分钟前" if age < 1 else f"{age:.1f}小时前"
+            cwd = Path(item.cwd).name if item.cwd else ""
+            lines.append(f"{index}. [{item.agent}] {title}")
+            lines.append(f"    {when} · {cwd}")
+        lines.append("")
+        lines.append("/attach <序号> 接到当前话题")
+        return "\n".join(lines)
+
+    def _attach_session(self, message_id, chat_id, argument):
+        """Bind an existing session id to the active topic."""
+        topic = self.session_map.active_topic(chat_id)
+        items = self._attach_cache.get(chat_id) or []
+
+        chosen = None
+        text = str(argument or "").strip()
+        if text.isdigit():
+            index = int(text)
+            if not items:
+                self._reply(message_id, "先发 /attach 看看有哪些会话。")
+                return
+            if not 1 <= index <= len(items):
+                self._reply(message_id, f"序号要在 1 到 {len(items)} 之间。")
+                return
+            chosen = items[index - 1]
+        else:
+            # Accept a raw session id, and infer the agent from its shape.
+            agent = "dsh" if text.startswith("session-") else "codex"
+            chosen = sessions_index.ExistingSession(agent=agent, session_id=text)
+
+        if not chosen or not chosen.session_id:
+            self._reply(message_id, "没有识别到会话 id。")
+            return
+
+        self.session_map.set(chat_id, chosen.agent, chosen.session_id, topic=topic)
+        title = (chosen.title or "").strip()
+        detail = f"「{title[:24]}」" if title else ""
+        self._reply(
+            message_id,
+            f"已把 {chosen.agent} 会话 {chosen.session_id[:16]}… {detail} "
+            f"接到话题 {self._topic_label(topic)}。\n"
+            "现在直接发消息就会接着那个对话说。",
+        )
 
     def _status_text(self, chat_id):
         topic = self.session_map.active_topic(chat_id)
