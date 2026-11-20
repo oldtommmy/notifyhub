@@ -1,4 +1,5 @@
 import json
+import logging
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,6 +7,7 @@ from unittest.mock import patch
 
 from notifyhub import agents, bridge
 from notifyhub.config import DEFAULT_CONFIG, deep_merge
+from notifyhub.events import Notification
 from notifyhub.feishu_listener import bot_mentions_text, extract_text
 from notifyhub import bridge_cli
 
@@ -647,3 +649,84 @@ class CredentialCheckTests(unittest.TestCase):
             with __import__("contextlib").redirect_stdout(buffer):
                 bridge_cli.cmd_bridge_check(_Args())
         self.assertIn("已注入环境", buffer.getvalue())
+
+
+class ResultSendTargetTests(unittest.TestCase):
+    """The result card must go to the chat that asked, not to receive_id."""
+
+    def test_result_is_sent_to_task_chat(self):
+        from unittest.mock import MagicMock
+
+        sent = {}
+
+        def fake_send(notification, settings, logger=None):
+            sent.update(settings)
+
+        config = config_with()
+        service = bridge_cli.BridgeService.__new__(bridge_cli.BridgeService)
+        service.config = config
+        service.logger = logging.getLogger("t")
+        with patch.object(bridge_cli.feishu_app, "send", side_effect=fake_send):
+            notification = Notification(source="dsh", event="BridgeResult", status_text="x")
+            service._send(notification, "oc_the_chat")
+
+        self.assertEqual(sent.get("receive_id"), "oc_the_chat")
+        self.assertEqual(sent.get("receive_id_type"), "chat_id")
+
+    def test_send_failure_does_not_raise(self):
+        config = config_with()
+        service = bridge_cli.BridgeService.__new__(bridge_cli.BridgeService)
+        service.config = config
+        service.logger = logging.getLogger("t")
+        with patch.object(
+            bridge_cli.feishu_app, "send", side_effect=RuntimeError("boom")
+        ), patch.object(bridge_cli.time, "sleep"), patch.object(
+            bridge_cli, "outbox_for"
+        ) as outbox_for:
+            outbox = outbox_for.return_value
+            result = service._send(
+                Notification(source="dsh", event="x", status_text="x"), "oc_1"
+            )
+        # All attempts failed, so the card is queued rather than dropped.
+        self.assertFalse(result)
+        outbox.add.assert_called_once()
+
+    def test_retries_then_succeeds(self):
+        config = config_with()
+        service = bridge_cli.BridgeService.__new__(bridge_cli.BridgeService)
+        service.config = config
+        service.logger = logging.getLogger("t")
+        calls = {"n": 0}
+
+        def flaky(notification, settings, logger=None):
+            calls["n"] += 1
+            if calls["n"] < 2:
+                raise RuntimeError("ssl eof")
+
+        with patch.object(bridge_cli.feishu_app, "send", side_effect=flaky), patch.object(
+            bridge_cli.time, "sleep"
+        ):
+            result = service._send(
+                Notification(source="dsh", event="x", status_text="x"), "oc_1"
+            )
+
+        self.assertTrue(result)
+        self.assertEqual(calls["n"], 2)
+
+    def test_reply_retries_once(self):
+        config = config_with()
+        service = bridge_cli.BridgeService.__new__(bridge_cli.BridgeService)
+        service.config = config
+        service.logger = logging.getLogger("t")
+        calls = {"n": 0}
+
+        def flaky(message_id, text, settings):
+            calls["n"] += 1
+            if calls["n"] < 2:
+                raise RuntimeError("handshake timeout")
+
+        with patch.object(bridge_cli.feishu_app, "reply_text", side_effect=flaky), patch.object(
+            bridge_cli.time, "sleep"
+        ):
+            self.assertTrue(service._reply("om_1", "hi"))
+        self.assertEqual(calls["n"], 2)

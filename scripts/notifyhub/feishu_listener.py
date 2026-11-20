@@ -149,6 +149,10 @@ class FeishuListener:
         handler = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(self.handle_event)
+            # Read receipts arrive constantly; without a handler the SDK logs a
+            # "processor not found" ERROR for each one, which buries real
+            # failures in the terminal.
+            .register_p2_im_message_message_read_v1(lambda _data: None)
             .build()
         )
         return lark.ws.Client(

@@ -21,6 +21,7 @@ from .config import load_config, resolve_path
 from .events import Notification
 from .feishu_listener import FeishuListener
 from .log import get_logger
+from .outbox import outbox_for
 from .render import shorten_markdown
 
 
@@ -94,19 +95,64 @@ class BridgeService:
         return (self.config.get("channels") or {}).get("feishu_app") or {}
 
     def _reply(self, message_id, text):
-        try:
-            feishu_app.reply_text(message_id, text, self._app_settings())
-        except Exception as error:
-            # A failed ack must never block the pipeline.
-            self.logger.error("bridge: reply failed: %s", error)
+        # A momentary TLS failure here used to drop the ack silently. Retry
+        # once, but never block the receive loop for long.
+        for attempt, delay in enumerate((0, 2), start=1):
+            if delay:
+                time.sleep(delay)
+            try:
+                feishu_app.reply_text(message_id, text, self._app_settings())
+                return True
+            except Exception as error:
+                self.logger.warning(
+                    "bridge: reply attempt %d/2 failed: %s", attempt, str(error)[:160]
+                )
+        return False
 
-    def _send(self, notification):
+    def _send(self, notification, chat_id):
+        """Send the result card back into the originating chat.
+
+        The result must go to the chat that asked for it, not to the configured
+        receive_id (which is usually a personal open_id of a different type).
+
+        Feishu calls fail intermittently behind a flaky proxy, so retry briefly
+        and fall back to the outbox rather than losing the result.
+        """
+        settings = dict(self._app_settings())
+        settings["receive_id_type"] = "chat_id"
+        settings["receive_id"] = chat_id
+
+        delays = (0, 2, 5)
+        last_error = None
+        for attempt, delay in enumerate(delays, start=1):
+            if delay:
+                time.sleep(delay)
+            try:
+                feishu_app.send(notification, settings, self.logger)
+                if attempt > 1:
+                    self.logger.info("bridge: card delivered on attempt %d", attempt)
+                return True
+            except Exception as error:
+                last_error = error
+                self.logger.warning(
+                    "bridge: card send attempt %d/%d failed: %s",
+                    attempt,
+                    len(delays),
+                    str(error)[:160],
+                )
+
+        # Every attempt failed: queue it so `notifyhub flush` retries later.
         try:
-            settings = self._app_settings()
-            settings = {**settings, "receive_id_type": "chat_id"}
-            feishu_app.send(notification, settings, self.logger)
+            outbox = outbox_for(self.config, self.logger)
+            outbox.add(notification, [("feishu_app", False, str(last_error))])
+            self.logger.error(
+                "bridge: card queued to outbox after %d failures: %s",
+                len(delays),
+                str(last_error)[:160],
+            )
         except Exception as error:
-            self.logger.error("bridge: failed to send card: %s", error)
+            self.logger.error("bridge: could not queue card: %s", error)
+        return False
 
     # -------------------------------------------------------------- inbound
 
@@ -188,7 +234,7 @@ class BridgeService:
             result = bridge.run_task(task, self.config, self.session_map, self.logger)
             replies = _bridge_settings(self.config).get("reply") or {}
             if replies.get("on_finish", True):
-                self._send(build_result_notification(task, result, self.config))
+                self._send(build_result_notification(task, result, self.config), task.chat_id)
             self.logger.info(
                 "bridge: finished agent=%s ok=%s duration=%.1fs",
                 task.agent,
