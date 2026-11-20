@@ -1178,6 +1178,45 @@ class AttachCommandTests(unittest.TestCase):
             )
         self.assertEqual(self.sessions.get("c1", "dsh", "main"), "session-raw-id")
 
+    def test_attach_warns_when_the_desktop_app_holds_the_session(self):
+        with self.fake_list(("dsh", "session-live-0001", "甲")), patch.object(
+            bridge_cli.agents, "session_in_use", return_value=True
+        ):
+            self.service._on_message(
+                kind="attach", payload="session-live-0001", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertIn("正开着它", self.replies[-1])
+        self.assertIn("/handoff", self.replies[-1])
+
+    def test_attach_is_quiet_when_the_session_is_free(self):
+        with self.fake_list(("dsh", "session-free-0002", "乙")), patch.object(
+            bridge_cli.agents, "session_in_use", return_value=False
+        ):
+            self.service._on_message(
+                kind="attach", payload="session-free-0002", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertNotIn("正开着它", self.replies[-1])
+        self.assertIn("接着那个对话说", self.replies[-1])
+
+    def test_attach_list_marks_locked_sessions(self):
+        with self.fake_list(
+            ("dsh", "session-live-0001", "占用的"), ("dsh", "session-free-0002", "空闲的")
+        ), patch.object(
+            bridge_cli.agents,
+            "session_in_use",
+            side_effect=lambda agent, sid, **kw: sid == "session-live-0001",
+        ):
+            self.service._on_message(
+                kind="attach_list", payload=None, message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        text = self.replies[-1]
+        self.assertIn("占用的 🔒", text)
+        self.assertNotIn("空闲的 🔒", text)
+        self.assertIn("/handoff", text)
+
     def test_attach_binds_to_active_topic_only(self):
         self.sessions.set_active_topic("c1", "前端")
         with self.fake_list(("dsh", "session-x", "x")):
