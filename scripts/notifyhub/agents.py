@@ -73,13 +73,19 @@ def _run(command, prompt, cwd, timeout, env=None):
 # --------------------------------------------------------------------- dsh
 
 
-def dsh_runner(session_id, prompt, cwd, timeout, permission_mode=None, approval_policy=None):
+def dsh_runner(
+    session_id, prompt, cwd, timeout, permission_mode=None, approval_policy=None, context=None
+):
     """Run one dsh headless turn, resuming session_id when given."""
     binary = _binary("dsh", "NOTIFYHUB_DSH_BIN")
     if not binary:
         raise RunnerError("找不到 dsh，请先安装 DeepSeek Harness")
 
     task = prompt
+    if context:
+        # Handoff digests are long and carry shell metacharacters, so they go
+        # through stdin and the prompt becomes "-": less argv, no quoting risk.
+        task = "-"
     command = [binary, "--profile", "headless", "--json"]
     if session_id:
         command += ["--session-id", session_id]
@@ -90,7 +96,7 @@ def dsh_runner(session_id, prompt, cwd, timeout, permission_mode=None, approval_
     command.append(task)
 
     started = time.time()
-    completed = _run(command, None, cwd, timeout)
+    completed = _run(command, context, cwd, timeout)
     elapsed = time.time() - started
 
     result = RunResult(ok=False, exit_code=completed.returncode, duration_seconds=elapsed)
@@ -146,7 +152,16 @@ def dsh_runner(session_id, prompt, cwd, timeout, permission_mode=None, approval_
 # ------------------------------------------------------------------- codex
 
 
-def codex_runner(session_id, prompt, cwd, timeout, sandbox=None, approval=None, model=None):
+def codex_runner(
+    session_id,
+    prompt,
+    cwd,
+    timeout,
+    sandbox=None,
+    approval=None,
+    model=None,
+    context=None,
+):
     binary = _binary("codex", "NOTIFYHUB_CODEX_BIN")
     if not binary:
         raise RunnerError("找不到 codex CLI")
@@ -161,10 +176,10 @@ def codex_runner(session_id, prompt, cwd, timeout, sandbox=None, approval=None, 
         command += ["-c", f'approval_policy="{approval}"']
     if model:
         command += ["-m", model]
-    command.append(prompt)
+    command.append(f"{context}\n\n{prompt}" if context else prompt)
 
     started = time.time()
-    completed = _run(command, None, cwd, timeout)
+    completed = _run(command, context, cwd, timeout)
     elapsed = time.time() - started
 
     result = RunResult(ok=False, exit_code=completed.returncode, duration_seconds=elapsed)

@@ -15,7 +15,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import agents, bridge, sessions_index
+from . import agents, bridge, sessions_index, transcript
 from .channels import feishu_app
 from .config import load_config, resolve_path
 from .events import Notification
@@ -83,6 +83,8 @@ class BridgeService:
         )
         self.guard = bridge.RunGuard()
         self._attach_cache = {}
+        # chat_id -> rendered handoff preamble waiting for the next prompt.
+        self._handoff_pending = {}
         self.worker = bridge.Worker(self._handle, logger, name="bridge-runner")
         self.listener = FeishuListener(
             config,
@@ -182,6 +184,8 @@ class BridgeService:
             return
         if kind == "attach":
             return self._attach_session(message_id, chat_id, payload)
+        if kind == "handoff":
+            return self._handoff(message_id, chat_id, payload)
         if kind == "new":
             topic = self.session_map.active_topic(chat_id)
             had = self.session_map.reset(chat_id, topic)
@@ -203,6 +207,7 @@ class BridgeService:
             return
 
         topic = self.session_map.active_topic(chat_id)
+        preamble = self._handoff_pending.pop(chat_id, "") if agent == "dsh" else ""
         task = bridge.Task(
             message_id=message_id,
             chat_id=chat_id,
@@ -210,6 +215,7 @@ class BridgeService:
             prompt=prompt,
             agent=agent,
             topic=topic,
+            context=preamble,
         )
 
         key = (chat_id, topic, agent)
@@ -362,6 +368,84 @@ class BridgeService:
             f"已把 {chosen.agent} 会话 {chosen.session_id} {detail} "
             f"接到话题 {self._topic_label(topic)}。\n"
             "现在直接发消息就会接着那个对话说。",
+        )
+
+    # ------------------------------------------------- handoff (接桌面会话的上下文)
+
+    def _handoff(self, message_id, chat_id, argument):
+        """Seed the next message with a digest of a desktop conversation.
+
+        dsh allows one write handle per session id and the desktop app holds it
+        while the session is open, so the bridge cannot resume that session.
+        Reading the event log needs no handle, so instead the phone gets its own
+        session that starts out knowing what the Mac conversation said.
+        """
+        settings = _bridge_settings(self.config)
+        turns = int(settings.get("handoff_turns", 6))
+        max_chars = int(settings.get("handoff_max_chars", 12000))
+
+        session_id = str(argument or "").strip()
+        items = self._attach_cache.get(chat_id) or []
+        if session_id.isdigit():
+            index = int(session_id)
+            if not items:
+                self._reply(
+                    message_id,
+                    "先发 /handoff（不带参数）看看有哪些会话可以接。",
+                )
+                return
+            if not 1 <= index <= len(items):
+                self._reply(message_id, f"序号要在 1 到 {len(items)} 之间。")
+                return
+            session_id = items[index - 1].session_id
+
+        if not session_id:
+            # Default to the most recently written dsh session: that is almost
+            # always the one the user is talking to on the Mac right now.
+            candidates = [
+                item
+                for item in sessions_index.list_sessions(agent="dsh", limit=10)
+                if item.session_id
+            ]
+            if candidates:
+                session_id = candidates[0].session_id
+
+        if not session_id:
+            self._reply(message_id, "没有找到可以接续的 dsh 会话。")
+            return
+
+        digest = transcript.build_digest(
+            session_id, turns=turns, max_chars=max_chars
+        )
+        if digest.empty:
+            self._reply(
+                message_id,
+                f"会话 {session_id[:24]} 里没有可用的对话记录，接不过来。",
+            )
+            return
+
+        preamble = transcript.render_digest(digest)
+        self._handoff_pending[chat_id] = preamble
+
+        # The phone session must be new: continuing an old one would mix two
+        # histories together and confuse the model.
+        topic = self.session_map.active_topic(chat_id)
+        self.session_map.reset(chat_id, topic)
+
+        title = (digest.title or "(无标题)")[:24]
+        self.logger.info(
+            "bridge: handoff chat=%s session=%s turns=%d chars=%d",
+            chat_id,
+            session_id,
+            len(digest.exchanges),
+            len(preamble),
+        )
+        self._reply(
+            message_id,
+            f"已接上「{title}」的上下文（共 {digest.total_turns} 轮，"
+            f"带上最近 {len(digest.exchanges)} 轮）。\n"
+            "话题已重置为新会话，下一条消息就会带着这段历史发给 dsh。\n"
+            "注意：手机这边说的话不会写回电脑那个会话。",
         )
 
     def _status_text(self, chat_id):

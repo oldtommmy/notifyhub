@@ -115,6 +115,10 @@ DEFAULT_CONFIG = {
         #            so "lock" would refuse sessions that are merely open.
         "session_conflict": "idle",
         "idle_grace_seconds": 90,
+        # /handoff copies a desktop conversation into the phone session. How
+        # much to carry over: recent exchanges, and a hard character ceiling.
+        "handoff_turns": 6,
+        "handoff_max_chars": 12000,
         "reply": {
             "ack": True,
             "on_start": True,

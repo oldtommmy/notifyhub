@@ -12,7 +12,7 @@ from notifyhub import agents, bridge
 from notifyhub.config import DEFAULT_CONFIG, deep_merge
 from notifyhub.events import Notification
 from notifyhub.feishu_listener import bot_mentions_text, extract_text
-from notifyhub import bridge_cli
+from notifyhub import bridge_cli, transcript
 
 
 def config_with(**bridge_settings):
@@ -80,6 +80,10 @@ class ParseCommandTests(unittest.TestCase):
         self.assertEqual(bridge.parse_command("/new", config_with())[0], "new")
         self.assertEqual(bridge.parse_command("/status", config_with())[0], "status")
         self.assertEqual(bridge.parse_command("/help", config_with())[0], "help")
+        self.assertEqual(bridge.parse_command("/handoff", config_with()), ("handoff", ""))
+        self.assertEqual(bridge.parse_command("/handoff 3", config_with()), ("handoff", "3"))
+        self.assertEqual(bridge.parse_command("/takeover", config_with()), ("handoff", ""))
+        self.assertEqual(bridge.parse_command("/接续", config_with())[0], "handoff")
 
     def test_empty_message_is_rejected(self):
         with self.assertRaises(bridge.BridgeDenied):
@@ -483,6 +487,35 @@ class RunTaskTests(unittest.TestCase):
             result = bridge.run_task(self.task, config_with(), self.sessions)
         self.assertFalse(result.ok)
         self.assertIn("并发续聊", result.error)
+
+    def test_handoff_context_reaches_the_runner(self):
+        task = bridge.Task(
+            message_id="m",
+            chat_id="chat-1",
+            sender_id="ou",
+            prompt="接着说",
+            agent="dsh",
+            topic="main",
+            context="【历史】之前聊了 A",
+        )
+        seen = {}
+
+        def runner(*args, **kwargs):
+            seen.update(kwargs)
+            return agents.RunResult(ok=True, exit_code=0, text="好", session_id="session-1")
+
+        bridge.run_task(task, config_with(), self.sessions, runner=runner)
+        self.assertEqual(seen.get("context"), "【历史】之前聊了 A")
+
+    def test_no_context_means_no_context_kwarg(self):
+        seen = {}
+
+        def runner(*args, **kwargs):
+            seen.update(kwargs)
+            return agents.RunResult(ok=True, exit_code=0, text="好", session_id="session-1")
+
+        bridge.run_task(self.task, config_with(), self.sessions, runner=runner)
+        self.assertNotIn("context", seen)
 
     def test_conflict_mode_is_passed_from_config(self):
         # The desktop app locks every session it has loaded, so the default
@@ -1296,3 +1329,99 @@ class SessionProbeTests(unittest.TestCase):
         self.assertFalse(
             agents.session_in_use("codex", "session-abc123", dsh_home=self.home, mode="lock")
         )
+
+
+class HandoffCommandTests(unittest.TestCase):
+    """\u002fhandoff seeds the next message with a desktop conversation digest."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.sessions = bridge.SessionMap(str(Path(self.temp.name) / "s.json"))
+        service = bridge_cli.BridgeService.__new__(bridge_cli.BridgeService)
+        service.config = config_with()
+        service.logger = logging.getLogger("t")
+        service.session_map = self.sessions
+        service._attach_cache = {}
+        service._handoff_pending = {}
+        self.replies = []
+        service._reply = lambda message_id, text: self.replies.append(text)
+        self.service = service
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def fake_digest(self, empty=False, **kwargs):
+        digest = transcript.Digest(
+            session_id="session-desk",
+            title="桌面的事",
+            total_turns=9 if not empty else 0,
+            exchanges=[] if empty else [transcript.Exchange(user="旧问题", assistant="旧回答")],
+            truncated=not empty,
+        )
+        return patch.object(bridge_cli.transcript, "build_digest", return_value=digest)
+
+    def test_handoff_stores_a_preamble_for_the_next_message(self):
+        with self.fake_digest():
+            self.service._on_message(
+                kind="handoff", payload="", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertIn("已接上", self.replies[-1])
+        preamble = self.service._handoff_pending.get("c1", "")
+        self.assertIn("旧问题", preamble)
+
+    def test_handoff_resets_the_topic_session(self):
+        self.sessions.set("c1", "dsh", "session-old", topic="main")
+        with self.fake_digest():
+            self.service._on_message(
+                kind="handoff", payload="", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        # A reused session would mix two unrelated histories together.
+        self.assertEqual(self.sessions.get("c1", "dsh", "main"), "")
+
+    def test_handoff_by_index_uses_the_attach_list(self):
+        from notifyhub import sessions_index as si
+
+        rows = [si.ExistingSession(agent="dsh", session_id="session-pick", title="挑中的")]
+        self.service._attach_cache["c1"] = rows
+        captured = {}
+
+        def fake(session_id, **kwargs):
+            captured["session_id"] = session_id
+            return transcript.Digest(session_id=session_id, exchanges=[])
+
+        with patch.object(bridge_cli.transcript, "build_digest", side_effect=fake):
+            self.service._on_message(
+                kind="handoff", payload="1", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertEqual(captured["session_id"], "session-pick")
+
+    def test_handoff_without_records_says_so(self):
+        with patch.object(
+            bridge_cli.sessions_index,
+            "list_sessions",
+            return_value=[
+                __import__("notifyhub.sessions_index", fromlist=["x"]).ExistingSession(
+                    agent="dsh", session_id="session-empty"
+                )
+            ],
+        ), self.fake_digest(empty=True):
+            self.service._on_message(
+                kind="handoff", payload="", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertIn("没有可用的对话记录", self.replies[-1])
+        self.assertNotIn("c1", self.service._handoff_pending)
+
+    def test_preamble_is_consumed_once(self):
+        with self.fake_digest():
+            self.service._on_message(
+                kind="handoff", payload="", message_id="m", chat_id="c1",
+                sender_id="ou", chat_type="p2p",
+            )
+        self.assertIn("c1", self.service._handoff_pending)
+        # Popping it for one message is what stops it being re-sent forever.
+        self.service._handoff_pending.pop("c1")
+        self.assertNotIn("c1", self.service._handoff_pending)

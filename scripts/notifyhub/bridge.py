@@ -32,6 +32,8 @@ class Task:
     agent: str
     topic: str = ""
     created_at: float = field(default_factory=time.time)
+    # Preamble carrying the handoff digest; sent once, then cleared.
+    context: str = ""
 
 
 @dataclass
@@ -65,6 +67,8 @@ HELP_TEXT = """notifyhub 远程续聊
 /attach → 列出本机已有会话
 /attach <序号> → 把它接到当前话题（序号从 1 开始）
 /attach <session-id> → 也可以直接给 id
+/handoff → 把桌面正在聊的会话历史接过来（手机接着聊）
+/handoff <序号或 id> → 指定要接哪个会话
 """
 
 
@@ -119,6 +123,12 @@ def parse_command(text, config):
         return "attach_list", None
     if lowered.startswith("/attach "):
         return "attach", raw[len("/attach ") :].strip()
+    if lowered in ("/handoff", "/takeover", "/接续"):
+        return "handoff", ""
+    if lowered.startswith("/handoff "):
+        return "handoff", raw[len("/handoff ") :].strip()
+    if lowered.startswith("/takeover "):
+        return "handoff", raw[len("/takeover ") :].strip()
 
     bridge = config.get("bridge") or {}
     prefixes = bridge.get("prefixes") or {}
@@ -468,6 +478,8 @@ def run_task(task, config, session_map, logger=None, runner=None):
 
     execute = runner or agents.get_runner(agent)
     kwargs = {"timeout": timeout}
+    if task.context:
+        kwargs["context"] = task.context
     if agent == "dsh":
         kwargs["permission_mode"] = bridge.get("permission_mode") or None
         kwargs["approval_policy"] = bridge.get("approval_policy") or None
