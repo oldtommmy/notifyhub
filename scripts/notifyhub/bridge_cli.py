@@ -15,7 +15,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import agents, bridge, sessions_index, transcript
+from . import agents, bridge, service, sessions_index, transcript
 from .channels import feishu_app
 from .config import load_config, resolve_path
 from .events import Notification
@@ -761,3 +761,143 @@ def cmd_bridge_owner(args):
     print("当前 receive_id_type 不是 open_id，无法直接得出 open_id。")
     print("在飞书里给机器人发一条消息，bridge 日志会打印你的 open_id。")
     return 1
+
+def cmd_bridge_logs(args):
+    """Tail the bridge log, so status checks don't need a terminal scrollback."""
+    config = load_config(args.config)
+    path = Path(str(config.get("log_path") or "~/.local/state/notifyhub/notifyhub.log")).expanduser()
+    if not path.is_file():
+        print(f"还没有日志文件：{path}")
+        return 1
+    if args.follow:
+        try:
+            os.execvp("tail", ["tail", "-n", str(args.lines), "-f", str(path)])
+        except OSError as error:
+            print(f"无法跟踪 {path}: {error}")
+            return 1
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    for line in lines[-max(1, args.lines):]:
+        print(line)
+    return 0
+
+
+def cmd_bridge_service(args):
+    """Install / remove / inspect the launchd-managed bridge."""
+    config = load_config(args.config)
+    settings = _bridge_settings(config)
+    action = args.service_command
+
+    if action == "status":
+        info = service.status()
+        loaded = bool(info.get("loaded"))
+        pid = info.get("pid")
+        alive = bool(pid)
+        print(f"launchd 注册 : {'是' if loaded else '否'}"
+              + (f"  PID {pid}" if pid else ""))
+        if loaded:
+            print(f"运行状态     : {'运行中' if alive else '已退出（launchd 会在下次登录重启）'}")
+        if info.get("reason"):
+            print(f"状态说明     : {info['reason']}")
+        if info.get("last_exit") not in (None, "0"):
+            print(f"上次退出码   : {info['last_exit']} （非 0 说明崩过，launchd 会重拉）")
+        plist = service.plist_path()
+        print(f"plist        : {plist}{'' if plist.is_file() else ' （不存在）'}")
+        log = Path(str(config.get("log_path") or "")).expanduser()
+        if log.is_file():
+            print(f"日志         : {log}")
+        return 0
+
+    if action == "uninstall":
+        result = service.uninstall(args.label)
+        print(f"已卸载 {result['path']}")
+        return 0
+
+    if action == "restart":
+        service.restart(args.label)
+        print("已重启。")
+        return 0
+
+    # install
+    if not settings.get("enabled"):
+        print("bridge.enabled 是 false，常驻服务会起不来。先把它改成 true。")
+        return 1
+    root = Path(args.root).expanduser().resolve() if args.root else _default_root()
+    python = args.python or service._python_for(venv=args.venv, root=root)
+    python = _absolute_interpreter(python, args.venv)
+    script = Path(args.script or (root / "notifyhub" / "scripts" / "notifyhub.py"))
+    if not script.is_file():
+        print(f"找不到入口脚本：{script}（用 --script 指定）")
+        return 1
+
+    env = {}
+    for name in ("QWEN_API_KEY", "NOTIFYHUB_FEISHU_APP_SECRET"):
+        value = _resolve_credential(args.env, name)
+        if value:
+            env[name] = value
+    plist = service.build_plist(
+        python=python,
+        script=script,
+        config=Path(args.config).expanduser() if args.config else _active_config_path(),
+        workspace=resolve_path(str(settings.get("workspace") or "~")),
+        log_path=Path(str(config.get("log_path") or "~/bridge.out")).expanduser().with_suffix(".out"),
+        env=env,
+        label=args.label,
+    )
+    target = service.install(plist, args.plist)
+    print(f"已安装 launchd 服务 {args.label}")
+    print(f"  plist : {target}")
+    print(f"  python: {python}")
+    print(f"  脚本  : {script}")
+    if env:
+        print(f"  注入  : {', '.join(sorted(env))}（值已写入 plist，mode 600）")
+    else:
+        print("  注入  : 无（服务会从本机凭据文件自己读取）")
+    print()
+    print("常用操作：")
+    print("  notifyhub bridge service status     # 看是否在跑")
+    print("  notifyhub bridge service restart    # 重启")
+    print("  notifyhub bridge service uninstall  # 卸载并停止")
+    print("  notifyhub bridge logs -n 50         # 看日志")
+    return 0
+
+
+def _default_root():
+    return Path(__file__).resolve().parents[2]
+
+
+def _absolute_interpreter(python, venv=None):
+    """Make the interpreter path absolute WITHOUT following the venv symlink.
+
+    launchd has no meaningful cwd, so a relative path fails. But resolving the
+    symlink leaves the venv and loses its site-packages, so anchor the path at
+    the venv directory instead.
+    """
+    path = Path(python).expanduser()
+    if path.is_absolute():
+        return str(path)
+    roots = [Path(venv).expanduser()] if venv else []
+    roots += [Path.cwd(), Path(__file__).resolve().parents[2]]
+    for root in roots:
+        candidate = (root / path)
+        if candidate.is_file():
+            return str(candidate)
+    return str(Path.cwd() / path)
+
+
+def _active_config_path():
+    """Best guess at the config file the caller is using."""
+    explicit = os.environ.get("NOTIFYHUB_CONFIG")
+    if explicit:
+        return Path(explicit).expanduser()
+    return Path("~/.config/notifyhub/config.json").expanduser()
+
+
+def _resolve_credential(args, name):
+    """Pick a credential up from argv, then the environment."""
+    flag = "--" + name.lower().replace("_", "-")
+    for index, arg in enumerate(args or []):
+        if arg == flag and index + 1 < len(args):
+            return args[index + 1]
+        if arg.startswith(flag + "="):
+            return arg.split("=", 1)[1]
+    return os.environ.get(name, "")

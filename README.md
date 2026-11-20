@@ -152,7 +152,26 @@ python3 -m pip install 'lark-oapi>=1.8'
 python3 scripts/notifyhub.py bridge owner    # 拿到你的 open_id
 # 写进 bridge.allow_open_ids，然后：
 python3 scripts/notifyhub.py bridge check
-python3 scripts/notifyhub.py bridge start
+python3 scripts/notifyhub.py bridge start     # 前台试跑，Ctrl-C 停
+```
+
+**确认能用之后，装成常驻服务**（推荐）：
+
+```bash
+export QWEN_API_KEY=... NOTIFYHUB_FEISHU_APP_SECRET=...   # 可选，见下方说明
+python3 scripts/notifyhub.py bridge service install
+python3 scripts/notifyhub.py bridge service status
+```
+
+前台 `bridge start` 会**跟着启动它的进程一起退出**——在 Mac 上就是退出桌面 App 时
+bridge 也被带走，于是「手机发消息没人收」。装成 launchd 服务后它就脱离 App 的进程树，
+开机自启、崩溃自动重拉，退 App 也不再受影响。日常用：
+
+```bash
+notifyhub bridge service status      # 是否在跑
+notifyhub bridge service restart     # 改完配置重启
+notifyhub bridge service uninstall   # 停掉并移除
+notifyhub bridge logs -n 50          # 看日志
 ```
 
 手机上：直接发消息 = 续聊当前话题；`@codex ...` 这一条切 agent；

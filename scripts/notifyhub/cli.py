@@ -416,6 +416,32 @@ def build_parser():
     bridge_check.set_defaults(func=bridge_cli.cmd_bridge_check)
     bridge_owner = bridge_sub.add_parser("owner", help="打印你的 open_id 供 allow_open_ids 使用")
     bridge_owner.set_defaults(func=bridge_cli.cmd_bridge_owner)
+    bridge_logs = bridge_sub.add_parser("logs", help="看最近的桥接日志")
+    bridge_logs.add_argument("-n", "--lines", type=int, default=30, help="显示多少行（默认 30）")
+    bridge_logs.add_argument("-f", "--follow", action="store_true", help="持续跟踪")
+    bridge_logs.set_defaults(func=bridge_cli.cmd_bridge_logs)
+    bridge_service = bridge_sub.add_parser("service", help="常驻运行（launchd），关掉 App 也不停")
+    bridge_service.add_argument(
+        "service_command",
+        nargs="?",
+        default="install",
+        choices=["install", "uninstall", "status", "restart"],
+        help="默认 install",
+    )
+    bridge_service.add_argument("--label", default="com.notifyhub.bridge")
+    bridge_service.add_argument("--plist", default=None, help="plist 输出路径（默认 ~/Library/LaunchAgents）")
+    bridge_service.add_argument("--root", default=None, help="仓库根目录（默认自动推断）")
+    bridge_service.add_argument("--script", default=None, help="入口脚本路径")
+    bridge_service.add_argument("--python", default=None, help="解释器（默认 .venv/bin/python）")
+    bridge_service.add_argument("--venv", default=None, help="虚拟环境目录")
+    bridge_service.add_argument(
+        "--env",
+        action="append",
+        metavar="--env KEY=VALUE",
+        help="写进 plist 的环境变量；凭据只想写在文件里的话不要用这个",
+    )
+    bridge_service.set_defaults(func=bridge_cli.cmd_bridge_service)
+
 
     return parser
 

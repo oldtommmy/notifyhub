@@ -142,6 +142,62 @@ bridge 默认只认它自己发起的会话。如果你在 Mac 上已经开了�
 **限制**：如果那个会话正被桌面 App 占着（dsh 的 `session.lock`），续聊会被拒绝，
 需要先在 App 里结束它。
 
+`/attach` 的列表会直接标出来：被占用的会话后面有 🔒。选中带 🔒 的会话时，回执会
+说明两条出路——**在电脑上完全退出 App（Cmd+Q）**再续写（真正写回原会话），或者
+用 `/handoff` 把历史接过去（现在就能聊，但不写回电脑）。
+
+## 常驻运行（关掉 App 也不停）
+
+前台 `bridge start` 会跟着启动它的那个终端/进程组一起退出。在 Mac 上这有个很具体的坑：
+**你退出桌面 App（Cmd+Q）时，bridge 也被一起带走**，于是「关掉 App、用手机接着聊」
+这个最常用的场景直接失效——手机上发消息没人收。
+
+正确做法是交给 launchd 管，让 bridge 脱离 App 的进程树：
+
+```bash
+notifyhub bridge service install     # 装成登录项，开机自启
+notifyhub bridge service status      # 看是否在跑
+notifyhub bridge service restart     # 重启（改完配置后用）
+notifyhub bridge service uninstall   # 卸载并停止
+notifyhub bridge logs -n 50          # 看最近 50 行日志
+notifyhub bridge logs -f             # 持续跟踪
+```
+
+装完之后：退出 App、注销终端、重启电脑，bridge 都会自己起来；进程崩溃时 launchd
+会在 30 秒后重拉（`kill -9` 实测 12 秒内恢复）。
+
+### 凭据怎么进到服务里
+
+launchd **不会继承你 shell 里的环境变量**，所以 `export QWEN_API_KEY=...` 对服务无效。
+两条路：
+
+**A. 先在 shell 里 export，再安装（值写进 plist）**
+
+```bash
+export QWEN_API_KEY=$(...)
+export NOTIFYHUB_FEISHU_APP_SECRET=$(...)
+notifyhub bridge service install
+```
+
+安装时这两个值会写进 `~/Library/LaunchAgents/com.notifyhub.bridge.plist`（mode 600），
+之后不再依赖 shell。
+
+**B. 不 export，让服务自己读本机凭据**
+
+plist 里只写变量名、值留空，bridge 启动时从 `~/.config/notifyhub/config.json`
+和 `~/.dsh/.credentials.yaml` 自己取（和 `start_bridge.sh` 用的是同一套读取逻辑）。
+配置文件里照常写 `${NOTIFYHUB_FEISHU_APP_SECRET}` 这种占位符即可。
+
+> `bridge service install` 的输出会打印「注入 : ...」，说明选的是 A 还是 B。
+> 如果没有注入任何值且配置里用的是 `${...}` 占位符，bridge 会因为读不到
+> `app_secret` 起不来 —— 这时要么 export 后重装，要么改用 B。
+
+### 关于 `.venv`
+
+launchd 没有有意义的工作目录，所以解释器路径必须是绝对的。`service install` 会自动
+把 `.venv/bin/python` 展开成仓库里的绝对路径（**不跟随符号链接**，否则会跑出
+venv、丢掉 `lark-oapi`）。也可以用 `--python /abs/path/python` 指定。
+
 ## 安全模型
 
 这个功能本质上是**一个远程命令执行入口**，请认真对待：
@@ -156,12 +212,27 @@ bridge 默认只认它自己发起的会话。如果你在 Mac 上已经开了�
 
 ### dsh 会话锁
 
-dsh 的会话文件在 `~/.dsh/sessions/<cwd>/<session-id>/`，用一个 `session.lock` 做排他。如果**桌面 App 正开着同一个会话**，headless 续聊会冲突。
+dsh 的会话文件在 `~/.dsh/sessions/<cwd>/<session-id>/`，用一个 `session.lock` 做排他，
+而且**一个会话同时只允许一个写句柄**（`claimWrite` 冲突就抛 `SessionAlreadyOwnedError`）。
+桌面 App 会一直搂着它加载过的会话，直到退出。
 
-bridge 会在续聊前检查该锁，被占用时直接回你一句「该会话正在被桌面 App 占用」，而不是把历史写坏。遇到这种情况：
+要点：**`session.lock` 文件存在 ≠ 会话被锁**。dsh 释放锁时只关闭句柄、不删文件，
+所以看到空文件不要以为被占用——真正的依据是 `lsof` 里有没有进程持有它。
 
-- 在 App 里结束那个会话，或者
-- 发 `/new` 开一个新会话
+bridge 的判定由两个配置决定：
+
+| 配置 | 含义 |
+|---|---|
+| `bridge.session_conflict: "lock"` | 严格：`lsof` 有持有者就算占用 |
+| `bridge.session_conflict: "idle"`（默认） | 温和：有持有者**且** transcript 最近 `idle_grace_seconds`（默认 90）内被写过，才算占用 |
+
+被判定占用时 bridge 会回你一句「该会话正在被桌面 App 使用（刚刚有写入）」，而不是把历史写坏。真要用手机续那个会话，两条路：
+
+- **在电脑上 Cmd+Q 退出 DSH** → 进程退出、OS 自动释放所有 flock → 再 `/attach` 就能真正续写
+- 不想退 App → 用 `/handoff`（见上一节），读历史开新会话，代价是手机说的话不写回电脑
+
+> 顺带一提：温和模式看的是 transcript 的 mtime。如果你正在 App 里聊这个会话，
+> 它每轮都在写，窗口会一直开着——那本来就该用 `/handoff`，不该并发写同一份历史。
 
 ### 首次运行与模型凭据
 
@@ -206,6 +277,8 @@ export DEEPSEEK_API_KEY=...
 | 一直回「未授权」 | `allow_open_ids` 里没有你的 open_id |
 | `bridge check` 报 lark-oapi 缺失 | `pip install 'lark-oapi>=1.8'` |
 | 回「该会话正在被桌面 App 占用」 | 见上面的会话锁说明 |
+| 退出 App 后手机发消息没反应 | bridge 不在常驻模式，被一起带走了 → `bridge service install` |
+| `bridge service` 起来就退（`LastExitStatus` 非 0） | 看 `bridge logs`：多半是没拿到 `app_secret`，见「凭据怎么进到服务里」 |
 | 回 `MISSING_CREDENTIAL` / `no credential for provider route` | headless profile 没拿到 key，见上面「模型凭据」 |
 
 日志在 `~/.local/state/notifyhub/notifyhub.log`，会话映射在 `~/.local/state/notifyhub/bridge_sessions.json`（mode 600）。

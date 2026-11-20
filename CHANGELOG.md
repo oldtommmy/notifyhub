@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+
+- **`bridge service`: run the bridge under launchd so it outlives the app.**
+  A foreground `bridge start` lives in the process group of whatever launched
+  it, so quitting the desktop app (Cmd+Q) killed the bridge with it — the
+  phone went silent exactly when "close the laptop and keep chatting" was
+  supposed to work. `bridge service install` writes a launchd agent
+  (`~/Library/LaunchAgents/com.notifyhub.bridge.plist`, mode 600) that starts
+  at login, survives the app quitting, and is restarted within seconds after
+  a crash (`KeepAlive: {SuccessfulExit: false}`, so an intentional
+  `uninstall` is not fought). `bridge service status|restart|uninstall`
+  manage it; `bridge logs [-n N] [-f]` reads the log without a terminal.
+  launchd inherits no shell environment, so credentials either get frozen into
+  the plist at install time (export first) or are read from the machine's own
+  config/credential files at start-up.
+- **`/handoff`: carry a desktop conversation to the phone without the lock.**
+  dsh allows one write handle per session id, and the desktop app holds every
+  session it has loaded, so continuing the very same conversation from the
+  phone is impossible while the app is open. `/handoff` reads the session's
+  transcript instead — no write handle needed — and injects the most recent
+  turns as read-only context into a fresh bridge session. Configurable with
+  `bridge.handoff_turns` (default 6) and `bridge.handoff_max_chars`
+  (default 12000). The trade-off is stated in the reply: what you type on the
+  phone is not written back to the desktop session.
+
+### Changed
+
+- `/attach` marks sessions the desktop app is holding with 🔒 and, when you
+  pick one, explains both ways forward (quit the app for a real resume, or
+  `/handoff` for a carry-over) instead of failing on the next message.
+
+## 0.7.0
+
 ## 0.5.0
 
 ### Added
