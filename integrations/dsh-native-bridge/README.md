@@ -102,5 +102,27 @@ Session cards show the conversation name, project, model, live status and the
 current binding. Binding/status details include cwd and session id in a subdued
 footer. Result cards preserve Markdown and show the session title, outcome, turn
 and elapsed time. Selection uses numbered replies and requires no additional
-Feishu callback subscription. Buttons can be added once `card.action.trigger` is
-configured; this version intentionally emits no callback-dependent controls.
+Feishu callback subscription. Buttons are available after subscribing to `card.action.trigger` and setting
+`bridge.card_actions=true` in the separate native bridge config. The default
+remains false so unconfigured applications never show dead controls.
+
+## Optional card buttons
+
+In the Feishu application console, configure callback subscriptions to use the
+existing long connection, then add **card.action.trigger** (card interaction).
+Save the configuration and publish if the console requires it. Set
+`bridge.card_actions=true` in the native bridge's separate config and reload the
+host/transport. No inbound HTTP server or public endpoint is required.
+
+Cards show **继续此会话**, **刷新列表**, and **当前会话**. Results additionally
+allow returning to the conversation that produced that answer. A callback only
+selects/displays sessions; it cannot submit an agent task. The handler verifies
+the owner allowlist plus a chat-bound HMAC capability. Buttons expire after
+15 minutes or a transport restart; request a fresh session list in that case.
+Repeated delivery of one button capability is ignored. The callback immediately
+acknowledges receipt; a separate rich reply confirms the actual session switch.
+Numbered replies and text commands continue to work when callbacks are disabled.
+
+Button acceptance on 2026-11-21: after subscribing to `card.action.trigger`,
+enabling the feature and restarting dsh, the user confirmed that clicking
+**继续此会话** returned the named session-switch confirmation card.

@@ -97,7 +97,8 @@ class SeenMessages:
 
 
 class FeishuListener:
-    def __init__(self, config, on_message, logger=None, reply=None):
+    def __init__(self, config, on_message, logger=None, reply=None, card_action=None):
+        self.card_action = card_action
         self.config = config
         self.on_message = on_message
         self.reply = reply
@@ -188,8 +189,11 @@ class FeishuListener:
         if not app_id or not app_secret:
             raise RuntimeError("bridge 需要 channels.feishu_app 的 app_id / app_secret")
 
+        builder = lark.EventDispatcherHandler.builder("", "")
+        if self.card_action:
+            builder.register_p2_card_action_trigger(self.card_action)
         handler = (
-            lark.EventDispatcherHandler.builder("", "")
+            builder
             .register_p2_im_message_receive_v1(self.handle_event)
             # Read receipts arrive constantly; without a handler the SDK logs a
             # "processor not found" ERROR for each one, which buries real

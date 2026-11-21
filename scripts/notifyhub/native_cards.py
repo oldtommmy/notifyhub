@@ -1,4 +1,4 @@
-"""Feishu layouts for native continuation; no callback subscription required."""
+"""Feishu layouts with optional callback buttons and numbered-reply fallback."""
 import re
 
 
@@ -16,7 +16,7 @@ def session_details(session):
     return f"📁 {escape(session.get('project'))}　·　{status}\n模型：{escape(model)}"
 
 
-def build_native_card(view, max_chars=3000):
+def build_native_card(view, max_chars=3000, action_value=None):
     kind = view.get('type')
     session = view.get('session') or {}
     elements = []
@@ -29,6 +29,8 @@ def build_native_card(view, max_chars=3000):
             elements.append({'tag': 'hr'})
             current = ' · 当前会话' if row.get('current') else ''
             elements.append(markdown(f"**{index + 1} · {escape(row.get('title'))}**{current}\n{session_details(row)}"))
+            if action_value:
+                elements.append({'tag': 'action', 'actions': [button('继续此会话', action_value('attach', row['id']), 'primary')]})
         if not rows:
             elements.append(markdown('暂无已加载的会话。请先在桌面 dsh 打开一个对话，再发「会话」。'))
         elements.append(markdown('只显示当前宿主已加载的前 10 个主会话。'))
@@ -50,4 +52,14 @@ def build_native_card(view, max_chars=3000):
             elements.append(markdown('直接发消息继续聊。发 **会话** 切换对话，发 **状态** 查看当前会话。'))
         if kind in ('bound', 'status'):
             elements.append({'tag': 'note', 'elements': [{'tag': 'plain_text', 'content': f"目录：{session.get('cwd') or '未指定'}\n会话：{session.get('id') or '未知'}"}]})
+    if action_value:
+        controls = [button('刷新列表', action_value('attach_list', '')), button('当前会话', action_value('status', ''))]
+        if kind != 'sessions' and session.get('id'):
+            controls.insert(0, button('切回此会话' if kind == 'result' else '继续此会话', action_value('attach', session['id']), 'primary'))
+        elements.append({'tag': 'action', 'actions': controls})
     return {'config': {'wide_screen_mode': True}, 'header': {'template': color, 'title': {'tag': 'plain_text', 'content': title}}, 'elements': elements}
+
+
+def button(label, value, style='default'):
+    return {'tag': 'button', 'text': {'tag': 'plain_text', 'content': label},
+            'type': style, 'value': value}
