@@ -51,6 +51,19 @@ try {
   controller.onEvent(session, { type: 'turn/end', data: { turn: 3, reason: { kind: 'error', error: { message: '模型失败' } } } });
   assert(outputs.at(-1).text.includes('模型失败'));
   assert(!outputs.at(-1).text.includes('新的回答'));
+  // Natural-language session picker and numeric choice need no slash commands.
+  await controller.receive(input('ui-list', 'task', ['dsh', '会话']));
+  assert.equal(outputs.at(-1).view.type, 'sessions');
+  assert.equal(outputs.at(-1).view.sessions[0].title, '已有会话');
+  await controller.receive(input('ui-pick', 'task', ['dsh', '1']));
+  assert.equal(outputs.at(-1).view.type, 'bound');
+  assert.equal(inputs.length, 2); // a picker choice must never become a model prompt
+  assert(!controller.cache.has('chat')); // consume selection mode after choosing
+  await controller.receive(input('expired-list', 'task', ['dsh', '会话']));
+  controller.cache.get('chat').expiresAt = 0;
+  await controller.receive(input('expired-choice', 'task', ['dsh', '1']));
+  assert(outputs.at(-1).text.includes('已过期'));
+  assert.equal(inputs.length, 2);
   // Crash between ledger write and followup must never auto-execute on restart.
   agent.followup = () => { throw new Error('crash boundary'); };
   await controller.receive(input('phone-4', 'task', ['dsh', 'uncertain']));

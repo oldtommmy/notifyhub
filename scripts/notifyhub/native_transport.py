@@ -9,6 +9,7 @@ from .channels import feishu_app
 from .config import load_config
 from .feishu_listener import FeishuListener
 from .log import get_logger
+from .native_cards import build_native_card
 
 
 class NativeTransport:
@@ -55,8 +56,13 @@ class NativeTransport:
                 limit = int(self.config.get('bridge', {}).get('max_message_chars', 3000))
                 if len(text) > limit:
                     text = text[:limit] + '\n（内容截断，完整结果见 dsh 原会话）'
-                feishu_app.reply_text(response['message_id'], text, app,
-                                      dedupe_key=response.get('key', 'reply'))
+                if response.get('view'):
+                    card = build_native_card(response['view'], max_chars=limit)
+                    feishu_app.reply_card(response['message_id'], card, app,
+                                          dedupe_key=response.get('key', 'reply'))
+                else:
+                    feishu_app.reply_text(response['message_id'], text, app,
+                                          dedupe_key=response.get('key', 'reply'))
             except Exception as error:
                 # No blind retries or legacy outbox: a timeout may mean delivered.
                 self.logger.warning('native reply outcome unconfirmed: %s', error)

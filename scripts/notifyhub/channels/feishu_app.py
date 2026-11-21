@@ -161,3 +161,14 @@ def send_card_to_chat(chat_id, card, config):
         {"Authorization": f"Bearer {token}"},
         timeout,
     )
+
+
+def reply_card(message_id, card, config, dedupe_key='reply'):
+    """Reply with a rich card using the same request identity as text replies."""
+    if not message_id:
+        raise FeishuAppError("message_id is required to reply")
+    token, base_url, timeout = _token_for(config)
+    payload = {"msg_type": "interactive", "content": json.dumps(card, ensure_ascii=False),
+               "uuid": str(uuid.uuid5(uuid.NAMESPACE_URL, f"notifyhub-native:{message_id}:{dedupe_key}"))}
+    return _post_json(base_url + REPLY_PATH.format(message_id=urllib.parse.quote(str(message_id))),
+                      payload, {"Authorization": f"Bearer {token}"}, timeout)

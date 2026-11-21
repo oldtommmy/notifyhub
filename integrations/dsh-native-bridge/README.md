@@ -44,6 +44,7 @@ execution. Credentials stay in Python config, never in the host protocol.
 
 ## Phone flow
 
+- `会话` / `切换会话` / `/sessions`: shows a formatted session picker; reply with a number within five minutes to switch.
 - `/sessions`: lists **loaded main sessions in this host**, with title and cwd.
 - `/attach 2`: binds this Feishu chat to the selected original session.
 - Plain text: submits a normal user message to that same agent's next-turn inbox.
@@ -94,3 +95,12 @@ Feishu and the same desktop conversation. This establishes basic writeback,
 not recovery under every failure condition. Busy-desktop attribution, replay,
 restart and empty-answer behavior have mock coverage; approval waits and
 network/crash recovery still need real-host acceptance.
+
+## Rich replies
+
+Session cards show the conversation name, project, model, live status and the
+current binding. Binding/status details include cwd and session id in a subdued
+footer. Result cards preserve Markdown and show the session title, outcome, turn
+and elapsed time. Selection uses numbered replies and requires no additional
+Feishu callback subscription. Buttons can be added once `card.action.trigger` is
+configured; this version intentionally emits no callback-dependent controls.
