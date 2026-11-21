@@ -5,6 +5,19 @@
 > 而每一条都对应一次线上踩坑。删掉任何一条「看起来多余」的保护前，请先找到它
 > 对应的故障记录。
 
+
+> **2026-11-21 更新：原生续聊原型**
+> `integrations/dsh-native-bridge/` 在桌面 dsh 进程内使用
+> `ctx.agents.get(id).followup()`，Python `native_transport.py` 仅负责飞书 I/O。
+> 因此同进程续聊不需要另起 headless，也不需要争抢会话写锁或复制历史。
+> 已核对本机 dsh 0.2.2-rc.5 源码；原型测试和真机验收分别记录，不能将旧 bridge
+> 的测试结论当作原生插件的验收。详见该插件 README。
+> 真机已验证：`/sessions` 列出桌面测试会话，`/attach` 后手机发消息，
+> 飞书收到回答且桌面原会话出现同一轮消息。故障恢复与审批应答仍未完成真机验收。
+> 当前首版只支持已加载的主会话、每会话一条未完成手机请求，沿用原会话权限。
+> 新插件独立安装到 `~/.local/share/notifyhub/native-bridge`，使用独立配置
+> `~/.config/notifyhub/native-bridge.json`。不启动旧 bridge 或 headless 服务。
+
 ---
 
 ## 1. 这个项目是什么

@@ -1,4 +1,5 @@
 import json
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -128,14 +129,17 @@ def _token_for(config):
     return token, base_url.rstrip("/"), timeout
 
 
-def reply_text(message_id, text, config):
+def reply_text(message_id, text, config, dedupe_key=None):
     """Reply to a specific Feishu message (keeps the phone-side thread)."""
     if not message_id:
         raise FeishuAppError("message_id is required to reply")
     token, base_url, timeout = _token_for(config)
+    payload = {"msg_type": "text", "content": json.dumps({"text": str(text)}, ensure_ascii=False)}
+    if dedupe_key is not None:
+        payload["uuid"] = str(uuid.uuid5(uuid.NAMESPACE_URL, f"notifyhub-native:{message_id}:{dedupe_key}"))
     return _post_json(
         base_url + REPLY_PATH.format(message_id=urllib.parse.quote(str(message_id))),
-        {"msg_type": "text", "content": json.dumps({"text": str(text)}, ensure_ascii=False)},
+        payload,
         {"Authorization": f"Bearer {token}"},
         timeout,
     )

@@ -410,6 +410,9 @@ def build_parser():
     bridge_start = bridge_sub.add_parser("start", help="启动长连接桥接（前台运行）")
     bridge_start.add_argument("--force", action="store_true", help="忽略 bridge.enabled=false")
     bridge_start.set_defaults(func=bridge_cli.cmd_bridge_start)
+    from .native_transport import cmd_native_transport
+    native = bridge_sub.add_parser("native-transport", help="dsh 原生续聊插件的飞书 I/O 子进程")
+    native.set_defaults(func=cmd_native_transport)
     bridge_status = bridge_sub.add_parser("status", help="查看当前远程会话")
     bridge_status.set_defaults(func=bridge_cli.cmd_bridge_status)
     bridge_check = bridge_sub.add_parser("check", help="启动前自检")
