@@ -3,7 +3,8 @@ from datetime import datetime
 
 from .channels import get_sender
 from .config import resolve_path
-from .state import StateStore
+from .state import StateStore, state_lock
+from .channels.feishu_app import AmbiguousSendError
 
 
 def _matches_project(notification, filters):
@@ -43,6 +44,12 @@ def _in_quiet_hours(config):
 
 
 def dispatch(notification, config, logger, force=False, only_channel=None):
+    path = resolve_path(config.get("state_path", "~/.local/state/notifyhub/state.json"))
+    with state_lock(path):
+        return _dispatch_locked(notification, config, logger, force, only_channel)
+
+
+def _dispatch_locked(notification, config, logger, force=False, only_channel=None):
     if not force and not _matches_project(notification, config.get("filters", {})):
         logger.info("filtered by project rules: %s", notification.cwd)
         return []
@@ -57,6 +64,7 @@ def dispatch(notification, config, logger, force=False, only_channel=None):
         return []
 
     results = []
+    uncertain = False
     for name, settings in config.get("channels", {}).items():
         if only_channel and name != only_channel:
             continue
@@ -66,6 +74,13 @@ def dispatch(notification, config, logger, force=False, only_channel=None):
         try:
             sender = get_sender(name)
             sender(notification, settings, logger)
+        except AmbiguousSendError as error:
+            # The message may already be visible. Retain its key across restarts
+            # rather than automatically sending a second copy on redelivery.
+            uncertain = True
+            logger.warning("%s delivery outcome unknown; suppressing automatic resend: %s", name, error)
+            results.append((name, False, str(error)))
+            continue
         except Exception as error:
             logger.error("%s delivery failed: %s", name, error)
             results.append((name, False, str(error)))
@@ -77,7 +92,7 @@ def dispatch(notification, config, logger, force=False, only_channel=None):
     if not results:
         logger.warning("no enabled channel configured")
 
-    if any(ok for _, ok, _ in results):
+    if uncertain or any(ok for _, ok, _ in results):
         state.mark(notification.dedupe_key)
         state.save()
 

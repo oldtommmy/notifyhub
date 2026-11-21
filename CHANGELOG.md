@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Serialize notification dispatch across processes so concurrent hooks cannot
+  send the same event twice or overwrite each other's deduplication records.
+- Add stable Feishu request UUIDs per event and receiver. Preserve the event key
+  when message submission times out or returns an unreadable response, so later
+  event redelivery cannot automatically send a second copy. Token acquisition
+  failures and explicit API rejections remain retryable.
+
+
 ## 0.1.0 — 2026-11-18
 
 ### Added

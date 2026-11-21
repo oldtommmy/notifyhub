@@ -1,4 +1,6 @@
+import http.client
 import json
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -14,6 +16,14 @@ class FeishuAppError(RuntimeError):
     pass
 
 
+class AmbiguousSendError(FeishuAppError):
+    """Message submission may have succeeded; automatic resend is unsafe."""
+
+
+class TransportError(FeishuAppError):
+    pass
+
+
 def build_content(notification, config):
     if config.get("message_type", "card") == "text":
         return "text", {"text": render_text(notification)}
@@ -25,11 +35,16 @@ def build_message_payload(notification, config):
     if receive_id_type not in RECEIVE_ID_TYPES:
         raise FeishuAppError(f"unsupported receive_id_type: {receive_id_type}")
     msg_type, content = build_content(notification, config)
-    return {
+    payload = {
         "receive_id": config.get("receive_id", ""),
         "msg_type": msg_type,
         "content": json.dumps(content, ensure_ascii=False),
     }
+    if notification.dedupe_key:
+        identity = json.dumps([config.get("app_id", ""), receive_id_type,
+                               config.get("receive_id", ""), notification.dedupe_key])
+        payload["uuid"] = str(uuid.uuid5(uuid.NAMESPACE_URL, identity))
+    return payload
 
 
 def _post_json(url, payload, headers, timeout):
@@ -46,13 +61,16 @@ def _post_json(url, payload, headers, timeout):
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", "replace")
         raise FeishuAppError(f"HTTP {error.code}: {detail[:300]}") from error
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        raise FeishuAppError(f"request failed: {error}") from error
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as error:
+        raise TransportError(f"request failed: {error}") from error
 
     try:
         parsed = json.loads(raw)
     except ValueError as error:
-        raise FeishuAppError(f"invalid response: {raw[:300]}") from error
+        raise TransportError(f"invalid response: {raw[:300]}") from error
+
+    if not isinstance(parsed, dict):
+        raise TransportError("invalid response: expected a JSON object")
 
     code = parsed.get("code", parsed.get("StatusCode", 0))
     if code not in (0, None):
@@ -92,9 +110,10 @@ def send(notification, config, logger=None):
     url = f"{base_url.rstrip('/')}{MESSAGE_PATH}?receive_id_type={urllib.parse.quote(receive_id_type)}"
     payload = build_message_payload(notification, config)
 
-    return _post_json(
-        url,
-        payload,
-        {"Authorization": f"Bearer {token}"},
-        timeout,
-    )
+    try:
+        return _post_json(
+            url, payload, {"Authorization": f"Bearer {token}"}, timeout,
+        )
+    except TransportError as error:
+        # Token acquisition errors happen before this block and are safe to retry.
+        raise AmbiguousSendError(str(error)) from error

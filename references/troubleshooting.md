@@ -103,3 +103,18 @@ python3 /new/path/scripts/notifyhub.py install-hooks
 ```
 
 Then re-trust the changed hook in Codex.
+
+### Delivery outcome unknown
+
+If the log says `delivery outcome unknown; suppressing automatic resend`, the
+message submission timed out or returned an unreadable response. Feishu may
+already have delivered it. notifyhub keeps the event's deduplication key and
+does not automatically send that event again, including after a restart. This
+is an uncertain outcome, not a confirmed delivery: check the Feishu chat. A
+message that never arrived may require manual recovery. Token acquisition
+failures occur before message submission and do not suppress later attempts.
+
+Hooks sharing a state file now serialize their read/check/send/save operation
+with a file lock. Feishu requests also carry a stable UUID for the same event
+and receiver (the API deduplicates matching UUIDs within one hour). The local
+state retains its existing bounded window of 1,000 event keys.
