@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.2
+
+### Documentation
+
+- **`HANDOFF.md` rewritten as a full handover.** The first version was written
+  before 0.9.0 removed `bridge.session_conflict` / `bridge.idle_grace_seconds`,
+  so it described a conflict probe that no longer exists — a reader following it
+  would have looked for settings that are gone. It now also separates the two
+  layers (the notification gateway on `main`, the paused bridge on
+  `feature/feishu-bridge`), documents that the headless profile needs its own
+  provider or every run fails with `MISSING_CREDENTIAL`, and records the state
+  this machine was left in after the reset.
+
+## 0.9.1
+
 ## 0.9.1
 
 ### Documentation
