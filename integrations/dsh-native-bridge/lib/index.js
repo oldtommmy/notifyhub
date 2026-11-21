@@ -6,7 +6,7 @@ import path from 'node:path';
 import { NativeController } from './controller.js';
 
 export const name = 'notifyhub-native-bridge';
-export const inject = ['agents', 'sessions'];
+export const inject = ['agents', 'sessions', 'sessionQuery', 'sessionController'];
 
 export async function apply(ctx, config = {}) {
   if (config.enabled !== true) return;

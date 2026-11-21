@@ -12,7 +12,9 @@ def markdown(text):
 
 def session_details(session):
     model = session.get('model') or '沿用会话配置'
-    status = {'running': '正在运行', 'idle': '空闲', 'completed': '已完成', 'failed': '异常结束'}.get(session.get('status'), '状态未知')
+    status = {'running': '正在运行', 'idle': '空闲', 'completed': '已完成', 'failed': '异常结束', 'historical': '历史会话 · 选择后恢复', 'unavailable': '暂不可读取'}.get(session.get('status'), '状态未知')
+    if session.get('loaded'):
+        status = '已加载 · ' + status
     return f"📁 {escape(session.get('project'))}　·　{status}\n模型：{escape(model)}"
 
 
@@ -32,8 +34,10 @@ def build_native_card(view, max_chars=3000, action_value=None):
             if action_value:
                 elements.append({'tag': 'action', 'actions': [button('继续此会话', action_value('attach', row['id']), 'primary')]})
         if not rows:
-            elements.append(markdown('暂无已加载的会话。请先在桌面 dsh 打开一个对话，再发「会话」。'))
-        elements.append(markdown('只显示当前宿主已加载的前 10 个主会话。'))
+            elements.append(markdown('暂无可读取的历史主会话。请先在桌面 dsh 打开一个对话，再发「会话」。'))
+        elements.append(markdown(f"共 {view.get('total', len(rows))} 个主会话 · 第 {view.get('page', 0) + 1}/{view.get('pages', 1)} 页 · 按最近活动排序"))
+        if view.get('pages', 1) > 1:
+            elements.append(markdown('发送 **上一页** 或 **下一页** 翻页。'))
     else:
         labels = {'bound': '已切换会话', 'status': '当前会话', 'accepted': '消息已提交', 'result': '回答已完成' if view.get('ok') else '本轮未正常完成'}
         title = labels.get(kind, 'dsh 续聊')
@@ -54,6 +58,12 @@ def build_native_card(view, max_chars=3000, action_value=None):
             elements.append({'tag': 'note', 'elements': [{'tag': 'plain_text', 'content': f"目录：{session.get('cwd') or '未指定'}\n会话：{session.get('id') or '未知'}"}]})
     if action_value:
         controls = [button('刷新列表', action_value('attach_list', '')), button('当前会话', action_value('status', ''))]
+        if kind == 'sessions':
+            page = view.get('page', 0)
+            if page > 0:
+                controls.append(button('上一页', action_value('attach_list', str(page - 1))))
+            if page + 1 < view.get('pages', 1):
+                controls.append(button('下一页', action_value('attach_list', str(page + 1))))
         if kind != 'sessions' and session.get('id'):
             controls.insert(0, button('切回此会话' if kind == 'result' else '继续此会话', action_value('attach', session['id']), 'primary'))
         elements.append({'tag': 'action', 'actions': controls})

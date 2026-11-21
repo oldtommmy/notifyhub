@@ -45,15 +45,21 @@ execution. Credentials stay in Python config, never in the host protocol.
 ## Phone flow
 
 - `会话` / `切换会话` / `/sessions`: shows a formatted session picker; reply with a number within five minutes to switch.
-- `/sessions`: lists **loaded main sessions in this host**, with title and cwd.
+- `/sessions`: lists live and persisted main sessions through the host session query service, with title and cwd.
 - `/attach 2`: binds this Feishu chat to the selected original session.
 - Plain text: submits a normal user message to that same agent's next-turn inbox.
 - `/status`: shows the binding and whether the host still has that agent loaded.
 
+Historical sessions are restored through the same `sessionController.resolveAgent`
+used by the desktop API. Session id, header/cwd, recorded model state and preset
+restoration remain host-owned. Listings exclude subagents, sort by last event
+time and paginate ten sessions per page. Page-local numbered selection and
+exact-id signed buttons both work. A failed restore leaves the binding unchanged.
+
 If the desktop is running a turn, the phone message waits in dsh's native inbox.
-The first version allows **one outstanding phone request per original session**;
+The current version allows **one outstanding phone request per original session**;
 a second is explicitly rejected until completion. Different live sessions can
-run independently. No `/new`, `/fork`, topics, offline resume, or handoff yet.
+run independently. No `/new`, `/fork`, topics, independent-host execution, or handoff yet.
 Permissions remain those of the original session. If dsh requires approval,
 use the desktop approval UI; phone-side approval is not implemented.
 
@@ -126,3 +132,17 @@ Numbered replies and text commands continue to work when callbacks are disabled.
 Button acceptance on 2026-11-21: after subscribing to `card.action.trigger`,
 enabling the feature and restarting dsh, the user confirmed that clicking
 **继续此会话** returned the named session-switch confirmation card.
+
+### History listing change
+
+Historical discovery now uses `ctx.sessionQuery.listSessions()` and
+`inspectSession()` instead of `ctx.agents.list()` alone. Restoration uses
+`ctx.sessionController.resolveAgent(id)` rather than a new headless process.
+`history.test.mjs` covers main-session filtering, recent-activity ordering,
+pagination, cold restoration, live reuse and unchanged binding on restore failure.
+
+History-list/restore changes are deployed locally but **real-host acceptance is
+pending**. Later test: restart dsh; send 会话; confirm multiple main sessions and
+loaded/history labels; select an unloaded session; send a small continuation
+prompt; confirm the answer appears in Feishu and the original desktop history.
+If there are more than ten main sessions, test 下一页 and choose an item there.

@@ -46,6 +46,48 @@ export class NativeController {
       cwd: session.header?.cwd || '', status: agent.status,
       model: typeof selection === 'string' ? selection : selection?.model || '' };
   }
+  async catalog() {
+    const live = this.ctx.agents.list().filter(a => !a.session.header?.parentSession && !(a.session.header?.delegationDepth > 0));
+    const query = this.ctx.sessionQuery;
+    if (!query) return live.map(a => ({ ...this.metadata(a), loaded: true }));
+    const records = (await query.listSessions()).filter(r => !r.header.parentSession && !(r.header.delegationDepth > 0));
+    const rows = await Promise.all(records.map(async record => {
+      const header = record.header;
+      const agent = this.ctx.agents.get(header.id);
+      try {
+        return await query.inspectSession(header.id, session => {
+          let title = agent?.session.title || '';
+          let selection;
+          let updatedAt = Number(header.createdAt) || 0;
+          for (let seq = session.seq - 1; seq >= 0; seq--) {
+            const event = session.eventAt(seq);
+            if (!event) continue;
+            if (seq === session.seq - 1) {
+              const timestamp = typeof event.time === 'number' ? event.time : Date.parse(event.time);
+              if (Number.isFinite(timestamp)) updatedAt = timestamp;
+            }
+            if (!title && event.type === 'session/title') title = event.data?.title || '';
+            if (!selection && event.type === 'model/selection') selection = event.data;
+          }
+          const meta = this.metadata(agent || { session: { id: header.id, title, header }, status: 'historical', model: { current: () => selection } });
+          return { ...meta, loaded: !!agent, updatedAt };
+        });
+      } catch (error) {
+        this.ctx.logger?.warn(`native session metadata unavailable (${header.id}): ${error.message}`);
+        return { ...this.metadata(agent || { session: { id: header.id, header }, status: 'unavailable' }), loaded: !!agent, updatedAt: Number(header.createdAt) || 0 };
+      }
+    }));
+    return rows.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+  }
+  async resolveAgent(id) {
+    if (!id) return undefined;
+    const live = this.ctx.agents.get(id);
+    if (live) return live.session.header?.parentSession || live.session.header?.delegationDepth > 0 ? undefined : live;
+    if (!this.ctx.sessionController) return undefined;
+    const found = await this.ctx.sessionController.resolveAgent(id);
+    if (found.error) throw found.error;
+    return found.agent;
+  }
   reply(input, text, key = 'reply', view = undefined) {
     this.output({ type: 'reply', message_id: input.message_id, request_id: input.message_id, key, text, view });
   }
@@ -63,6 +105,7 @@ export class NativeController {
       const prompt = String(input.payload?.[1] || '').trim();
       if (['会话', '切换会话', '会话列表'].includes(prompt)) input = { ...input, kind: 'attach_list' };
       else if (prompt === '状态') input = { ...input, kind: 'status' };
+      else if (['下一页', '上一页'].includes(prompt)) input = { ...input, kind: 'attach_list', payload: String(Math.max(0, (this.cache.get(input.chat_id)?.page || 0) + (prompt === '下一页' ? 1 : -1))) };
       else if (/^\d+$/.test(prompt)) {
         const choice = this.cache.get(input.chat_id);
         if (choice && Date.now() >= choice.expiresAt) {
@@ -78,18 +121,32 @@ export class NativeController {
       this.reply(input, `这条消息已登记，状态：${old.state}。不会重复执行。`, 'duplicate');
       return;
     }
-    const live = () => this.ctx.agents.list().filter(a => !a.session.header?.parentSession && !(a.session.header?.delegationDepth > 0));
     if (input.kind === 'attach_list') {
-      const rows = live().slice(0, 10);
-      this.cache.set(input.chat_id, { ids: rows.map(a => a.session.id), expiresAt: Date.now() + 5 * 60_000 });
-      this.reply(input, rows.length ? rows.map((a, i) => `${i + 1}. ${a.session.title || a.session.id}\n${a.session.header?.cwd || ''} · ${a.status}`).join('\n') + '\n/attach 序号 绑定原会话' : '当前宿主没有已加载的主会话。先在 dsh 打开一个会话。', 'reply', { type: 'sessions', sessions: rows.map(a => ({ ...this.metadata(a), current: a.session.id === this.data.bindings[input.chat_id] })) });
+      let all;
+      try { all = await this.catalog(); }
+      catch (error) {
+        this.ctx.logger?.warn(`native session listing failed: ${error.message}`);
+        this.reply(input, '暂时无法读取历史会话，请稍后刷新。当前绑定保持不变。');
+        return;
+      }
+      const pages = Math.max(1, Math.ceil(all.length / 10));
+      const page = Math.min(pages - 1, Math.max(0, Number.parseInt(input.payload, 10) || 0));
+      const rows = all.slice(page * 10, page * 10 + 10).map(row => ({ ...row, current: row.id === this.data.bindings[input.chat_id] }));
+      this.cache.set(input.chat_id, { ids: rows.map(row => row.id), page, expiresAt: Date.now() + 5 * 60_000 });
+      this.reply(input, rows.map((row, i) => `${i + 1}. ${row.title}`).join('\n') || '暂无主会话。', 'reply', { type: 'sessions', sessions: rows, page, pages, total: all.length });
       return;
     }
     if (input.kind === 'attach') {
       const argument = String(input.payload || '').trim().replace(/^[<`]+|[>`]+$/g, '');
       const id = /^\d+$/.test(argument) ? this.cache.get(input.chat_id)?.ids[Number(argument) - 1] : argument;
-      if (!live().some(a => a.session.id === id)) { this.reply(input, '没有找到已加载的主会话。先发 /sessions，再用 /attach 序号。'); return; }
-      const agent = this.ctx.agents.get(id);
+      let agent;
+      try { agent = await this.resolveAgent(id); }
+      catch (error) {
+        this.ctx.logger?.warn(`native session restore failed (${id}): ${error.message}`);
+        this.reply(input, '恢复会话失败，当前绑定保持不变。请在桌面检查原会话的目录、权限或占用状态。');
+        return;
+      }
+      if (!agent) { this.reply(input, '没有找到可继续的主会话，请刷新会话列表。'); return; }
       this.cache.delete(input.chat_id);
       this.data.bindings[input.chat_id] = id;
       this.save();
@@ -109,7 +166,13 @@ export class NativeController {
     const [kind, prompt] = input.payload || [];
     if (kind !== 'dsh') { this.reply(input, '此入口只支持 dsh。'); return; }
     const sessionId = this.data.bindings[input.chat_id];
-    const agent = sessionId && this.ctx.agents.get(sessionId);
+    let agent;
+    try { agent = await this.resolveAgent(sessionId); }
+    catch (error) {
+      this.ctx.logger?.warn(`native bound session restore failed: ${error.message}`);
+      this.reply(input, '当前会话暂时无法恢复，本条消息未执行。请在桌面检查原会话或切换其他会话。');
+      return;
+    }
     if (!agent) { this.reply(input, '还没有可用的当前会话。请先在桌面打开对话，再发「会话」选择；选择后请重新发送本条消息。'); return; }
     if ([...this.pending.values()].some(r => r.session === sessionId)) {
       this.reply(input, '该会话还有一条手机消息未完成，请等结果返回。'); return;
