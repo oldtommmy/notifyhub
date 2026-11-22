@@ -39,6 +39,6 @@ class CardActionTests(unittest.TestCase):
         signer = CardActions()
         card = build_native_card({'type': 'sessions', 'sessions': [{'id': 'exact-session', 'title': '测试'}]}, action_value=lambda kind, payload: signer.sign('chat', kind, payload))
         buttons = [button for element in card['elements'] if element['tag'] == 'action' for button in element['actions']]
-        self.assertEqual([b['text']['content'] for b in buttons], ['继续此会话', '刷新列表', '当前会话'])
+        self.assertEqual([b['text']['content'] for b in buttons], ['继续此会话', '刷新列表', '当前会话', '使用帮助'])
         self.assertEqual(buttons[0]['value']['payload'], 'exact-session')
         self.assertTrue(all(signer.verify(b['value'], 'chat') for b in buttons))

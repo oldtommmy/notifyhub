@@ -106,7 +106,7 @@ def parse_command(text, config):
         raise BridgeDenied("空消息")
 
     lowered = raw.lower()
-    if lowered in ("/help", "help", "？", "?"):
+    if lowered in ("帮助", "命令", "菜单", "help", "command", "/help", "/command", "？", "?"):
         return "help", None
     if lowered in ("/new", "new", "/reset"):
         return "new", None

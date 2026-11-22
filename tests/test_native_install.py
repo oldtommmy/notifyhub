@@ -57,8 +57,7 @@ class NativeGuiInstallTests(unittest.TestCase):
         self.assertEqual(self.config.read_bytes(), source)
         self.assertEqual(ledger.read_text(), 'keep')
         command = native_install._run.call_args.args[0]
-        self.assertIn('link:' + (self.runtime / 'integrations/dsh').as_posix(), command)
-        self.assertEqual(len(command[4:]), 1)
+        self.assertEqual(command[4:], ['add', 'link:' + (self.runtime / 'integrations/dsh').as_posix()])
         self.assertIn('!!js () => true', self.profile.read_text())
         self.assertIn('enabled: false', self.profile.read_text())
         self.assertIn('- id: dsh-notifyhub', self.profile.read_text())

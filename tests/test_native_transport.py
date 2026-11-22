@@ -1,7 +1,10 @@
 import logging
 import unittest
+from types import SimpleNamespace as NS
 from unittest.mock import patch
 
+from notifyhub.bridge import parse_command
+from notifyhub.native_cards import build_native_card
 from notifyhub.native_transport import NativeTransport
 from notifyhub.channels import feishu_app
 
@@ -21,6 +24,45 @@ class NativeTransportTests(unittest.TestCase):
         self.assertEqual(self.frames[-1]['kind'], 'task')
         self.transport.enqueue({'type': 'reply', 'message_id': 'om_1', 'text': 'done', 'key': 'result'})
         self.assertEqual(self.transport.outbound.get_nowait()['message_id'], 'om_1')
+
+    def test_help_menu_and_buttons_route_without_submitting_a_prompt(self):
+        transport = self.transport
+        transport.config['bridge'].update(enabled=True, allow_open_ids=['owner'])
+        transport.buttons_enabled = True
+        transport.codex.enabled = True
+        chat = 'oc_1'
+        for alias in ('帮助', '命令', '菜单', 'HELP', 'command', '/help', '/COMMAND'):
+            with self.subTest(alias=alias):
+                self.assertEqual(parse_command(alias, transport.config), ('help', None))
+        kind, payload = parse_command('帮助', transport.config)
+        transport.inbound(kind=kind, payload=payload, message_id='om_1', chat_id=chat, sender_id='owner', chat_type='p2p')
+        self.assertFalse(self.frames)
+        view = transport.outbound.get_nowait()['view']
+        self.assertEqual(view, {'type': 'help', 'dsh': True, 'codex': True})
+        card = build_native_card(view, action_value=lambda k, p, e: transport.actions.sign(chat, k, p, e))
+        ds, codex, status = card['elements'][1]['actions']
+
+        def click(button):
+            return transport.handle_card_action(NS(event=NS(
+                operator=NS(open_id='owner'), context=NS(open_chat_id=chat, open_message_id='menu'),
+                action=NS(value=button['value']),
+            )))
+
+        with patch.object(transport.codex, 'enqueue') as route_codex:
+            self.assertEqual(click(codex).toast.type, 'info')
+            self.assertEqual(route_codex.call_args.args[0]['kind'], 'attach_list')
+            self.assertEqual(click(status).toast.type, 'info')
+            self.assertEqual(route_codex.call_args.args[0]['kind'], 'status')
+            self.assertEqual(click(ds).toast.type, 'info')
+            self.assertEqual(self.frames[-1]['kind'], 'attach_list')
+            self.assertEqual(transport.codex.routes[chat], 'dsh')
+
+    def test_help_without_card_callbacks_shows_only_available_commands(self):
+        card = build_native_card({'type': 'help', 'dsh': False, 'codex': True})
+        elements = card['elements']
+        self.assertTrue(all(element['tag'] == 'div' for element in elements))
+        self.assertIn('Codex会话', elements[-1]['text']['content'])
+        self.assertNotIn('DSH会话', elements[-1]['text']['content'])
 
     def test_reply_uuid_is_stable_for_result_but_differs_for_ack(self):
         with patch.object(feishu_app, '_token_for', return_value=('test', 'https://example.invalid', 5)), patch.object(feishu_app, '_post_json', return_value={}) as post:

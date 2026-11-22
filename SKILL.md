@@ -79,6 +79,7 @@ For Codex, check that the local CLI supports the queue and turn history APIs (ve
 
 These are messages sent to the bot in Feishu, not terminal commands. Explain the flow as **list → select → send a prompt**.
 
+- **帮助**, **命令**, **菜单**, `help`, `command`, `/help` or `/command` opens the usage menu. When card callbacks are enabled, the menu has buttons for available engines and the current binding. Use **使用帮助** on a session or result card to reopen it.
 - **会话** or `/sessions` lists sessions for the selected agent. **DSH会话** switches to dsh. **Codex会话** switches to Codex when the experimental Codex GUI option is enabled.
 - Click **继续此会话**, reply with the row number within five minutes, or send `/attach 2` to select row 2 of the current page.
 - **上一页** and **下一页** change pages. **状态** or `/status` shows the current binding.

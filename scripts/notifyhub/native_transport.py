@@ -20,6 +20,7 @@ class NativeTransport:
     def __init__(self, config, logger, emit):
         self.config, self.logger, self.emit = config, logger, emit
         self.targets = {}
+        self.chat_types = {}
         self.card_replies = {}
         self.actions = CardActions()
         self.card_seen = SeenMessages()
@@ -33,7 +34,16 @@ class NativeTransport:
         # Only messages that passed the listener's allowlist reach this point.
         if message.get('kind') == 'agent':
             message['kind'] = 'task'
-        self.targets[message['message_id']] = message['chat_id']
+        message_id, chat = message['message_id'], message['chat_id']
+        self.targets[message_id] = chat
+        if message.get('chat_type'):
+            self.chat_types[chat] = message['chat_type']
+        if message.get('kind') == 'help':
+            self.enqueue({'type': 'reply', 'message_id': message_id, 'key': 'help', 'view': {
+                'type': 'help', 'dsh': self.codex.dsh_enabled,
+                'codex': self.codex.enabled and message.get('chat_type') == 'p2p',
+            }})
+            return
         if self.codex.wants(message):
             self.codex.enqueue({'type': 'message', **message})
         elif self.codex.dsh_enabled:
@@ -56,13 +66,16 @@ class NativeTransport:
         if not is_allowed(sender, self.config):
             return toast('你没有此机器人的操作权限。', 'error')
         if not self.buttons_enabled or not parent or not self.actions.verify(value, chat):
-            return toast('按钮已失效，请发送「会话」获取新卡片。', 'warning')
+            return toast('按钮已失效，请发送「帮助」获取新菜单。', 'warning')
         request_id = 'card:' + value['nonce']
         if not self.card_seen.check_and_add(request_id):
             return toast('已收到这次操作，请查看回复。')
         self.card_replies[request_id] = parent
+        engine = value.get('engine', 'dsh')
         self.inbound(kind=value['kind'], payload=value['payload'], message_id=request_id,
-                     chat_id=chat, sender_id=sender, chat_type='p2p' if value.get('engine') == 'codex' else '', engine=value.get('engine', 'dsh'))
+                     chat_id=chat, sender_id=sender,
+                     chat_type=self.chat_types.get(chat, 'p2p' if engine == 'codex' else ''),
+                     engine=None if engine == 'current' else engine)
         return toast('已收到，正在处理。')
 
     def refusal(self, message_id, text):
@@ -103,8 +116,13 @@ class NativeTransport:
                 if message_id in self.card_replies:
                     key += ':' + message_id
                 if response.get('view'):
-                    action_value = (lambda kind, payload: self.actions.sign(self.targets[message_id], kind, payload, engine='codex' if response['view'].get('engine') == 'Codex' else 'dsh')) if self.buttons_enabled else None
-                    card = build_native_card(response['view'], max_chars=limit, action_value=action_value)
+                    view = response['view']
+                    default_engine = 'codex' if view.get('engine') == 'Codex' else 'dsh'
+                    action_value = None
+                    if self.buttons_enabled:
+                        def action_value(kind, payload, engine=default_engine):
+                            return self.actions.sign(self.targets[message_id], kind, payload, engine=engine)
+                    card = build_native_card(view, max_chars=limit, action_value=action_value)
                     feishu_app.reply_card(target, card, app, dedupe_key=key)
                 else:
                     feishu_app.reply_text(target, text, app, dedupe_key=key)

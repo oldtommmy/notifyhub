@@ -18,12 +18,44 @@ def session_details(session):
     return f"📁 {escape(session.get('project'))}　·　{status}\n模型：{escape(model)}"
 
 
+def help_elements(view, action_value):
+    engines = []
+    if view.get('dsh'):
+        engines.append(('dsh', 'DSH'))
+    if view.get('codex'):
+        engines.append(('codex', 'Codex'))
+    if not engines:
+        return [markdown('此聊天暂无可用的续聊入口。请与机器人私聊，并在 NotifyHub 配置中启用续聊。')]
+
+    elements = [markdown('先选一个桌面会话，再直接发消息。回答会回到飞书。')]
+    if action_value:
+        controls = [button(f'{label} 会话', action_value('attach_list', '', engine), 'primary')
+                    for engine, label in engines]
+        controls.append(button('当前会话', action_value('status', '', 'current')))
+        elements.append({'tag': 'action', 'actions': controls})
+    commands = [f'**`{label}会话`** · 列出 {label} 会话并切到该工具' for _, label in engines]
+    commands.extend([
+        '**`会话` / `/sessions`** · 列出当前工具的会话',
+        '**`2` / `/attach 2`** · 选中本页第 2 个会话',
+        '**`上一页` / `下一页`** · 翻动会话列表',
+        '**`状态` / `/status`** · 查看当前绑定',
+        '**`帮助` / `命令` / `菜单` / `help` / `command`** · 打开这张菜单',
+    ])
+    elements.append(markdown('\n'.join(commands)))
+    if action_value:
+        elements.append(markdown('在列表点「继续此会话」，也可在回答卡片点「切回此会话」。'))
+    return elements
+
+
 def build_native_card(view, max_chars=3000, action_value=None):
     kind = view.get('type')
     session = view.get('session') or {}
     elements = []
     color = 'blue'
-    if kind == 'sessions':
+    if kind == 'help':
+        title = 'NotifyHub · 续聊菜单'
+        elements = help_elements(view, action_value)
+    elif kind == 'sessions':
         title = '选择要继续的会话'
         rows = view.get('sessions') or []
         elements.append(markdown('**回复序号即可切换**，例如回复 `2`。选择在 5 分钟内有效。'))
@@ -56,7 +88,7 @@ def build_native_card(view, max_chars=3000, action_value=None):
             elements.append(markdown('直接发消息继续聊。发 **会话** 切换对话，发 **状态** 查看当前会话。'))
         if kind in ('bound', 'status'):
             elements.append({'tag': 'note', 'elements': [{'tag': 'plain_text', 'content': f"目录：{session.get('cwd') or '未指定'}\n会话：{session.get('id') or '未知'}"}]})
-    if action_value:
+    if action_value and kind != 'help':
         controls = [button('刷新列表', action_value('attach_list', '')), button('当前会话', action_value('status', ''))]
         if kind == 'sessions':
             page = view.get('page', 0)
@@ -66,6 +98,7 @@ def build_native_card(view, max_chars=3000, action_value=None):
                 controls.append(button('下一页', action_value('attach_list', str(page + 1))))
         if kind != 'sessions' and session.get('id'):
             controls.insert(0, button('切回此会话' if kind == 'result' else '继续此会话', action_value('attach', session['id']), 'primary'))
+        controls.append(button('使用帮助', action_value('help', '')))
         elements.append({'tag': 'action', 'actions': controls})
     if view.get('engine') == 'Codex':
         title = 'Codex · ' + title

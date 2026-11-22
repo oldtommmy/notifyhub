@@ -23,7 +23,9 @@ class CardActions:
     def verify(self, value, chat_id):
         if not isinstance(value, dict) or value.get('chat') != chat_id:
             return False
-        if value.get('engine', 'dsh') not in ('dsh', 'codex') or value.get('kind') not in ('attach', 'attach_list', 'status'):
+        engine, kind = value.get('engine', 'dsh'), value.get('kind')
+        if not (engine in ('dsh', 'codex') and kind in ('attach', 'attach_list', 'status', 'help')
+                or engine == 'current' and kind == 'status'):
             return False
         try:
             return (int(value['expires']) >= time.time()
