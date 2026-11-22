@@ -469,14 +469,16 @@
             <input id="dshAllowedIds" type="text" placeholder="ou_...，多个用逗号分隔" autocomplete="off" spellcheck="false">
           </label>
           <p class="hint">先保存上方的飞书凭据，并导入 <a href="https://github.com/oldtommmy/notifyhub/blob/main/bot-config.json" target="_blank" rel="noopener noreferrer">bot-config.json 完整权限预设</a>。仅填写已核实的用户 ID；留空时只安装，不启用。</p>
-          <label><input id="dshNativeEnabled" type="checkbox"> 已配置接收消息事件，启用续聊</label><br>
-          <label><input id="codexBridgeEnabled" type="checkbox"> 同时启用 Codex 原会话续聊（实验性）</label><br>
+          <label><input id="dshNativeEnabled" type="checkbox"> 已订阅接收消息，启用飞书续聊</label><br>
+          <label><input id="codexBridgeEnabled" type="checkbox" aria-describedby="codexBridgeHint"> 同时启用 Codex 原会话续聊（实验性）</label>
+          <p class="hint" id="codexBridgeHint">先启用飞书续聊。Codex 共用由 dsh App 保持的飞书长连接，需要本机安装并登录 Codex CLI。应用配置并重启 dsh 后，在飞书私聊发“Codex会话”。审批在 Codex 界面处理。</p>
           <label><input id="dshCardActions" type="checkbox"> 已配置卡片回调，启用会话按钮</label>
           <p class="hint">事件配置：长连接＋im.message.receive_v1。回调配置：长连接＋card.action.trigger。dsh App 需保持运行；审批仍在桌面处理。</p>
         </div>
         <div class="row-actions">
           <button class="btn" id="installDshBtn">安装 DSH 插件</button>
         </div>
+        <div class="hint" id="codexBridgeStatus" role="status" hidden></div>
         <div class="hint" id="dshHint">安装后重启 <code>dsh web</code> 生效。</div>
       </div>
     </section>
@@ -785,6 +787,11 @@ async function loadStatus() {
     if (native.installed) $("dshMode").value = "native";
     dshNativeHydrated = true;
   }
+  const codexStatus = $("codexBridgeStatus");
+  codexStatus.hidden = !native.installed;
+  codexStatus.textContent = native.enabled && native.codex_enabled
+    ? "Codex 续聊已配置。应用设置后需重启 dsh，再到飞书发“Codex会话”验证。"
+    : "Codex 续聊未启用。";
   selectDshProfile(dshProfile);
   if (native.installed) setPill("dshPill", native.enabled ? "通知＋续聊已配置" : "续聊已装 · 未启用", native.enabled ? "ok" : "warn");
 
@@ -1076,6 +1083,7 @@ function selectDshProfile(value) {
   if (value !== "desktop") $("dshMode").value = "notify";
   const native = $("dshMode").value === "native";
   $("dshNativeFields").hidden = !native;
+  $("codexBridgeEnabled").disabled = !native || !$("dshNativeEnabled").checked;
   const install = $("installDshBtn");
   if (install) install.textContent = native ? "安装通知＋续聊并应用配置" : value === "desktop" ? "安装通知到桌面版" : "安装通知到 Web";
 }
@@ -1120,6 +1128,7 @@ function bindEvents() {
   $("installBtn").addEventListener("click", installHooks);
   $("installDshBtn").addEventListener("click", installDsh);
   $("dshMode").addEventListener("change", () => selectDshProfile(dshProfile));
+  $("dshNativeEnabled").addEventListener("change", () => selectDshProfile(dshProfile));
   for (const button of document.querySelectorAll("#dshProfile [role=tab]")) {
     button.addEventListener("click", () => selectDshProfile(button.dataset.value));
   }
