@@ -71,7 +71,7 @@ python3 scripts/notifyhub.py gui
 完整步骤见 **[飞书机器人配置教程](references/feishu-setup.md)**。应用配置完成后，回到已打开的 GUI：
 
 1. 填写应用的 **App ID** 和 **App Secret**。
-2. 接收人默认用 `open_id`。填完 App ID 和 App Secret，页面会自动查找应用所有者。也可以点击 **自动获取** 重试，或填写已核实的接收人。
+2. 接收人默认用 `open_id`。填完 App ID 和 App Secret，页面会自动查找应用所有者。也可以点击 **获取接收人** 重试，或填写已核实的接收人。
 3. 保存配置，点击测试发送，确认飞书私聊收到卡片。
 
 配置默认保存在 `~/.config/notifyhub/config.json`。App Secret 在本机界面或环境变量中填写，无需发给聊天里的 agent。
@@ -141,12 +141,12 @@ Node.js 不存在时，先从 [Node.js 官方下载页](https://nodejs.org/en/do
 
 ### 在 GUI 安装通知＋dsh 续聊
 
-在 **DeepSeek Harness** 卡片中选择“桌面版”，将安装功能切换为 **完成通知＋dsh 续聊**：
+在 GUI 打开独立的 **飞书续聊** 卡片：
 
 1. 先保存上方的飞书凭据，并按教程导入完整 `bot-config.json`。
 2. 填写允许使用者的 `open_id`（多个用逗号分隔）。
 3. 配好接收消息事件后勾选“启用续聊”；配好卡片回调后勾选“启用会话按钮”。
-4. 点击 **安装通知＋续聊并应用配置**。GUI 会准备独立运行目录、Python 依赖、两个插件和 desktop profile。
+4. 点击 **安装并应用续聊**。GUI 会准备独立运行目录、Python 依赖、两个插件和 desktop profile。
 5. 当前任务结束后重启 dsh，在飞书发“会话”验证。
 
 不勾选启用时，会安装插件但保持续聊关闭。GUI 显示安装和配置状态；保存启用设置不代表已在运行，需重启宿主验证。首次安装依赖需要联网。
@@ -194,7 +194,7 @@ App Secret 由我在本机 GUI 或环境变量填写，不要让我贴到聊天�
 ### 配置入口
 
 1. 在[飞书配置教程](references/feishu-setup.md)中完成“续聊”部分：导入完整 `bot-config.json`、订阅消息事件；需要按钮时再订阅卡片回调。
-2. 在 GUI 选择“完成通知＋dsh 续聊”安装；手动安装和可靠性说明见 **[原生续聊安装说明](integrations/dsh-native-bridge/README.md#installation)**。
+2. 在 GUI 的“飞书续聊”卡片安装；手动安装和可靠性说明见 **[原生续聊安装说明](integrations/dsh-native-bridge/README.md#installation)**。
 3. 在 `bridge.allow_open_ids` 中填写经过核实的本人 `open_id`，再启用续聊。列表为空时拒绝所有人。
 4. 安装当前分支的 dsh 通知插件版本，以排除手机发起轮次的重复完成通知。
 5. 重启 dsh，在飞书发“会话”，选择目标对话，再发送一条测试消息。
@@ -226,7 +226,7 @@ App Secret 由我在本机 GUI 或环境变量填写，不要让我贴到聊天�
 
 此功能在 `feat/codex-continuation` 分支。保持 dsh 桌面 App 运行以承载现有飞书长连接，并在 Codex 桌面端打开要继续的本地会话。
 
-1. 在 notifyhub GUI 选择 **完成通知＋dsh 续聊**，配置并启用续聊，同时勾选 **Codex 原会话续聊**。应用设置后重启 dsh。
+1. 在 notifyhub GUI 打开 **飞书续聊** 卡片，配置并启用续聊，同时勾选 **Codex 原会话续聊**。应用设置后重启 dsh。
 2. 与机器人私聊，发 **Codex会话**，点选或回复序号绑定本地会话。
 3. 直接发送文字。机器人确认入队后，由 Codex 原会话处理。审批仍在 Codex 界面完成。
 4. 发 **DSH会话** 可切回 dsh。

@@ -11,7 +11,7 @@ compatibility and end-to-end phone testing are separate from the mock tests.
 ## Installation
 
 Preferred: open `python3 scripts/notifyhub.py gui`, save the Feishu credentials,
-then choose Desktop → **完成通知＋dsh 续聊**. Import the complete `bot-config.json`
+then use the **飞书续聊** card. Import the complete `bot-config.json`
 in the Feishu console. Enter verified allowed open_ids and explicitly enable
 continuation after subscribing to messages; enable buttons after adding card
 callbacks. Click install/apply, then restart dsh when its current work finishes.
