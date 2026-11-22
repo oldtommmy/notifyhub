@@ -315,12 +315,12 @@ def cmd_install_dsh(args):
         print("找不到 integrations/dsh，请确认 notifyhub 包完整。")
         return 1
 
-    dsh = dsh_install.dsh_binary()
+    dsh = dsh_install.dsh_binary(args.profile)
     if args.print_only or dsh is None:
         command = dsh_install.build_command(args.profile)
         print(dsh_install.format_command(command))
         if dsh is None:
-            print("未找到 dsh。先安装 DeepSeek Harness：npx @deepseek-ai/dsh web")
+            print("未找到可用的 dsh CLI。先检查桌面自带 CLI 或 NOTIFYHUB_DSH_BIN；确实未安装时执行 npm install -g @deepseek-ai/dsh，再用 dsh --version 验证。")
             print("也可以用 npx 安装插件：")
             link_path = plugin.as_posix() if os.name == "nt" else str(plugin)
             npx_command = [
@@ -333,14 +333,14 @@ def cmd_install_dsh(args):
                 f"link:{link_path}",
             ]
             print(dsh_install.format_command(npx_command))
-        return 0
+        return 0 if args.print_only else 1
 
     result = dsh_install.install(args.profile)
     if not result["ok"]:
         print(f"安装失败：{result.get('stderr') or result.get('error', '')}")
         return 1
 
-    print("已安装 DSH 插件。重启 dsh web 生效。")
+    print("已安装 DSH 插件。" + ("重启 DeepSeek Harness 桌面 App 生效。" if args.profile == "desktop" else "重启 dsh web 生效。"))
     return 0
 
 

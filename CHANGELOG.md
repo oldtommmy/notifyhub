@@ -11,6 +11,10 @@
 
 ### Fixed
 
+- GUI/CLI desktop plugin installation discovers the desktop-bundled dsh CLI
+  even when it is not on PATH. Desktop installs prefer that CLI over a separate
+  npm installation; `NOTIFYHUB_DSH_BIN` supports custom locations.
+
 - Outbox replay now respects handled events and does not reset retry counts by
   re-adding a failed replay. Ambiguous outcomes are not automatically requeued.
 

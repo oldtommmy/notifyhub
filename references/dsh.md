@@ -11,6 +11,11 @@ Feishu configuration and card renderer used by Codex are reused.
 When the user has selected dsh integration, the installing agent should continue
 through CLI setup instead of ending at “dsh not found”.
 
+The GUI and CLI installer now discover the bundled desktop CLI automatically
+(in system or user Applications on macOS); desktop installs prefer it over a
+separate npm CLI. `NOTIFYHUB_DSH_BIN` can select a custom executable. Restart
+the notifyhub GUI after updating the installation or changing that variable.
+
 1. Run `command -v dsh` (Windows: `where dsh`) and `dsh --version`.
 2. On macOS with the desktop App installed, check its bundled CLI first:
 

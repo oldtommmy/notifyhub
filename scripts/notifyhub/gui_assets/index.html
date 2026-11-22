@@ -765,7 +765,7 @@ async function loadStatus() {
       ? "web 已安装；桌面版还需要装到 desktop。"
       : dsh.dsh_found
         ? "选择目标后安装；桌面版装完重启 App，Web 重启 <code>dsh web</code>。"
-        : "未找到 dsh。先安装：<code>npx @deepseek-ai/dsh web</code>";
+        : "未找到可用 CLI。已检查 PATH 和桌面 App；可设置 <code>NOTIFYHUB_DSH_BIN</code> 后重启 GUI，或安装 <code>npm install -g @deepseek-ai/dsh</code>，再验证 <code>dsh --version</code>。";
 
   $("hooksHint").innerHTML = '安装后在 Codex 里运行 <code>/hooks</code> 信任 notifyhub。';
 }
