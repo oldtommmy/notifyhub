@@ -5,6 +5,42 @@ DeepSeek Harness host, listens to the persisted `session/event` stream, and on
 `turn/end` calls the bundled notifyhub CLI with a normalized payload. The same
 Feishu configuration and card renderer used by Codex are reused.
 
+<a id="missing-cli"></a>
+## CLI missing: resolve installation before installing the plugin
+
+When the user has selected dsh integration, the installing agent should continue
+through CLI setup instead of ending at “dsh not found”.
+
+1. Run `command -v dsh` (Windows: `where dsh`) and `dsh --version`.
+2. On macOS with the desktop App installed, check its bundled CLI first:
+
+   ```bash
+   "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" --version
+   ```
+
+   If it works, temporarily prepend its `bin` directory to PATH for subsequent
+   installer commands. Keep the desktop runtime/profile instead of downloading
+   a second version just because the shell did not find the executable.
+3. If no CLI is available, check Node.js/npm. If missing, guide installation
+   from [Node.js](https://nodejs.org/en/download); then query the current package
+   requirements and install the [official dsh package](https://www.npmjs.com/package/@deepseek-ai/dsh):
+
+   ```bash
+   node --version
+   npm --version
+   npm view @deepseek-ai/dsh engines --json
+   npm install -g @deepseek-ai/dsh
+   dsh --version
+   ```
+
+4. If global installation is unavailable, use `npx @deepseek-ai/dsh --version`
+   to verify the npm entry point and its explicit `plugin --profile …` commands.
+   A successful npx invocation does not mean `dsh` was added to PATH. Diagnose
+   PATH/global-prefix problems before using the Python installer's CLI lookup.
+5. Once verified, continue with the actual desktop/web profile below. Only
+   dsh users need this dependency; do not install it for Codex-only notification
+   setup. Do not fall back to headless for desktop native continuation.
+
 ## Install
 
 DSH Desktop and `dsh web` use different profiles. Install into the one the host

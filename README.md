@@ -42,7 +42,7 @@ notifyhub 把本地 agent 的完成结果发到你的飞书私聊，带上会话
 
 ### 1. 准备环境
 
-准备 Python **3.10+**、一个飞书企业自建应用，以及你要接入的 agent。项目主要在 macOS 使用；原生续聊建议使用 Python **3.12**。
+准备 Python **3.10+** 和你要接入的 agent；飞书应用可以在打开 GUI 后按下一步创建。项目主要在 macOS 使用；原生续聊建议使用 Python **3.12**。
 
 ```bash
 git clone https://github.com/oldtommmy/notifyhub.git
@@ -52,19 +52,21 @@ python3 --version
 
 下文的命令均在仓库根目录执行。如果系统的 `python3` 太旧，请换成已安装的 `python3.12`。
 
-### 2. 创建并配置飞书机器人
-
-到 [飞书开发者后台](https://open.feishu.cn/app) 创建企业自建应用，开启机器人能力。只接收通知时，导入 [通知权限 JSON](assets/feishu-notify-scopes.json)，按后台要求申请权限、配置应用可用范围并发布，让自己的账号可以使用这个机器人。
-
-完整步骤见 **[飞书机器人配置教程](references/feishu-setup.md)**，包含权限导入、接收人、消息事件和卡片回调配置。
-
-### 3. 填写凭据并发送测试
+### 2. 先打开本地 GUI
 
 ```bash
 python3 scripts/notifyhub.py gui
 ```
 
-在本地界面中：
+命令会启动本地配置服务并打开浏览器。没有自动打开时，使用终端打印的完整地址（含访问令牌）。配置期间保持该终端运行，按 `Ctrl+C` 退出。
+
+先打开页面即可，尚未创建飞书应用时不必填写凭据。GUI 用于配置和测试完成通知；续聊的飞书长连接由 dsh 原生插件启动，打开 GUI 本身不会建立长连接。
+
+### 3. 创建飞书机器人，回到 GUI 填写凭据
+
+到 [飞书开发者后台](https://open.feishu.cn/app) 创建企业自建应用，开启机器人能力。只接收通知时，导入 [通知权限 JSON](assets/feishu-notify-scopes.json)，按后台要求申请权限、配置应用可用范围并发布。
+
+完整步骤见 **[飞书机器人配置教程](references/feishu-setup.md)**。应用配置完成后，回到已打开的 GUI：
 
 1. 填写应用的 **App ID** 和 **App Secret**。
 2. 点击 **自动获取**，优先选择应用所有者的 `open_id`；也可以手动填写已核实的接收人。
@@ -111,6 +113,29 @@ python3 scripts/notifyhub.py doctor
 ```
 
 让对应 agent 完成一轮任务，确认飞书收到真实任务的完成通知。DSH 的 `desktop` 和 `web` 是不同 profile，需要分别安装。
+
+<details>
+<summary>检测不到 dsh CLI？先处理安装，再安装通知插件</summary>
+
+先检查 `command -v dsh` 和 `dsh --version`。macOS 已安装桌面 App 时，也检查其自带 CLI：
+
+```bash
+"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" --version
+```
+
+若该命令可用，可在当前终端把对应 `bin` 目录加入 PATH 后继续安装插件，保留桌面版的 CLI 版本。确实未安装时，检查 Node.js/npm 后安装：
+
+```bash
+node --version
+npm --version
+npm view @deepseek-ai/dsh engines --json
+npm install -g @deepseek-ai/dsh
+dsh --version
+```
+
+Node.js 不存在时，先从 [Node.js 官方下载页](https://nodejs.org/en/download)安装满足 dsh 要求的版本。安装后若 PATH 尚未更新，重新打开终端再验证；不便全局安装时可用 `npx @deepseek-ai/dsh --version` 验证 npm 启动方式。完整处理流程见 [DSH 安装排障](references/dsh.md#missing-cli)。
+
+</details>
 
 ## 也可以交给自己的 agent 安装
 

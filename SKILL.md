@@ -22,10 +22,11 @@ Default to Feishu app-bot private messages. Preserve a working webhook or other 
 ## Completion notification workflow
 
 1. Check Python (3.10+, recommend 3.12), the requested agent and existing hooks. Codex is required only for its own integration.
-2. Guide Feishu setup using [references/feishu-setup.md](references/feishu-setup.md). For notifications, use [assets/feishu-notify-scopes.json](assets/feishu-notify-scopes.json). The repository's `bot-config.json` is a broad reference export, not the required permission set; current flows use app identity and do not require user OAuth permissions.
-3. Let the user fill App ID/Secret in the local GUI or environment. Never ask them to paste App Secret into chat, print it, or put its literal value in a displayed command.
-4. Discover the recipient through the GUI or probe. Optional app-info/chat-list permissions support discovery; a verified manual recipient is also valid. Never guess an `open_id` or reuse one from another app without verifying it.
-5. Save config, test delivery, install only the requested hook/plugin, and run `doctor`. Config/hook writers back up their previous files.
+2. Open the local GUI first (`python3 "$SKILL_ROOT/scripts/notifyhub.py" gui`); keep it running while the user creates the Feishu app and returns to fill credentials. The GUI does not establish the native bridge WebSocket.
+3. Guide Feishu setup using [references/feishu-setup.md](references/feishu-setup.md). For notifications, use [assets/feishu-notify-scopes.json](assets/feishu-notify-scopes.json). The repository's `bot-config.json` is a broad reference export, not the required permission set; current flows use app identity and do not require user OAuth permissions.
+4. Let the user fill App ID/Secret in the local GUI or environment. Never ask them to paste App Secret into chat, print it, or put its literal value in a displayed command.
+5. Discover the recipient through the GUI or probe. Optional app-info/chat-list permissions support discovery; a verified manual recipient is also valid. Never guess an `open_id` or reuse one from another app without verifying it.
+6. Save config, test delivery, install only the requested hook/plugin, and run `doctor`. Config/hook writers back up their previous files.
 
 ```bash
 python3 "$SKILL_ROOT/scripts/notifyhub.py" gui
@@ -51,6 +52,8 @@ python3 "$SKILL_ROOT/scripts/notifyhub.py" doctor
 ```
 
 Choose only the relevant commands. Codex hooks need trust in `/hooks` or Desktop Settings → Hooks. A changed hook definition may need trust again. Claude Code / Command Code need their host restarted and hook checked. The installers merge existing settings; use their CLI rather than replacing settings by hand. Uninstall with `uninstall-hooks --target …`.
+
+If the user selected dsh and CLI detection fails, read [CLI installation guidance](references/dsh.md#missing-cli) and resolve it before continuing: check the desktop-bundled executable/PATH first; otherwise check Node.js/npm requirements, install the official `@deepseek-ai/dsh` CLI, verify `dsh --version`, then install the requested plugin. If Node.js is missing, guide its installation too. Use npx when global installation is unavailable, and distinguish that from having a CLI on PATH. Do not stop with only “dsh not found”, install dsh for unrelated agents, or switch a desktop native workflow to headless.
 
 DSH Desktop uses the `desktop` profile; `dsh web` uses `web`. Install into the actual profile and restart that host when its current work is finished. Desktop updates may reset a directly configured profile; see [DSH reference](references/dsh.md). Keep installed paths stable because hooks/plugins reference absolute launchers.
 

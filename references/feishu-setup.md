@@ -9,6 +9,18 @@
 | 仅接收完成通知 | [feishu-notify-scopes.json](../assets/feishu-notify-scopes.json) | 开启机器人并发布应用 |
 | 完成通知＋手机续聊 | [feishu-native-scopes.json](../assets/feishu-native-scopes.json) | 消息事件；使用按钮时增加卡片回调 |
 
+## 0. 先打开 notifyhub GUI
+
+在仓库根目录运行：
+
+```bash
+python3 scripts/notifyhub.py gui
+```
+
+保持终端运行，在打开的页面里准备填写凭据。如果浏览器未自动打开，访问命令打印的完整地址。随后按下面步骤创建飞书应用，再回到 GUI 保存配置和发送测试卡片。
+
+**GUI 与长连接是两件事**：GUI 是本地通知配置界面；dsh 原生插件启动后才会建立续聊使用的飞书长连接。后台如提示“应用尚未建立长连接”，需要先配置并运行原生插件，反复打开 GUI 不会解决该提示。
+
 ## 1. 创建企业自建应用
 
 1. 打开[飞书开发者后台](https://open.feishu.cn/app)，创建企业自建应用。
