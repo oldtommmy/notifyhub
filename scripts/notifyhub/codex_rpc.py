@@ -1,9 +1,11 @@
 """Local Codex control-protocol client; never resumes a competing writer."""
 import json
 import os
+from pathlib import Path
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import uuid
 
@@ -19,6 +21,11 @@ class CodexRpcRejected(CodexRpcError):
 class CodexRpc:
     def __init__(self, command=None, timeout=15):
         binary = os.environ.get('NOTIFYHUB_CODEX_BIN') or shutil.which('codex')
+        if not binary and sys.platform == 'darwin':
+            for path in map(Path, ('/opt/homebrew/bin/codex', '/usr/local/bin/codex')):
+                if path.is_file() and os.access(path, os.X_OK):
+                    binary = str(path)
+                    break
         if not command and not binary:
             raise CodexRpcError('找不到 Codex CLI，请先安装并登录 Codex。')
         self.command = command or [binary, 'app-server', '--listen', 'stdio://']
