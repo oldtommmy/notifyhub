@@ -80,13 +80,29 @@ class CodexBridgeTests(unittest.TestCase):
             {'type': 'agentMessage', 'text': 'wrong reply'}]}]
         self.bridge.poll()
         self.assertFalse(any(row['key'] == 'result' for row in self.outputs))
-        self.rpc.turns.append({'id': 'phone-turn', 'status': 'completed', 'items': [
+        phone_turn = {'id': 'phone-turn', 'status': 'interrupted', 'completedAt': None, 'items': [
             {'type': 'userMessage', 'clientId': queued['clientUserMessageId']},
             {'type': 'agentMessage', 'phase': 'commentary', 'text': 'working'},
-            {'type': 'agentMessage', 'phase': 'final_answer', 'text': 'correct reply'}]})
+            {'type': 'agentMessage', 'phase': 'final_answer', 'text': 'correct reply'}]}
+        self.rpc.turns.append(phone_turn)
+        self.bridge.poll()
+        self.assertEqual(self.bridge.data['requests']['phone']['state'], 'queued')
+        self.assertFalse(any(row['key'] == 'result' for row in self.outputs))
+        phone_turn.update(status='completed', completedAt=1)
         self.bridge.poll()
         self.bridge.poll()
-        self.assertEqual([row['text'] for row in self.outputs if row['key'] == 'result'], ['correct reply'])
+        [result] = [row for row in self.outputs if row['key'] == 'result']
+        self.assertEqual(result['text'], 'correct reply')
+        self.assertEqual(result['view']['session']['status'], 'completed')
+
+    def test_report_confirmed_interruption(self):
+        self.bridge.handle(self.frame('phone'))
+        [queued] = self.queue_calls()
+        self.rpc.turns = [{'id': 'phone-turn', 'status': 'interrupted', 'completedAt': 1, 'items': [
+            {'type': 'userMessage', 'clientId': queued['clientUserMessageId']}]}]
+        self.bridge.poll()
+        self.assertEqual(self.outputs[-1]['key'], 'result')
+        self.assertFalse(self.outputs[-1]['view']['ok'])
 
     def test_uncertain_queue_is_never_replayed_after_restart(self):
         self.rpc.error = CodexRpcError('timeout')

@@ -212,7 +212,9 @@ class CodexBridge:
                 continue
             turns = self._call('thread/turns/list', {'threadId': request['thread'], 'limit': 20, 'sortDirection': 'desc', 'itemsView': 'full'})
             turn = next((turn for turn in turns.get('data', []) if any(item.get('type') == 'userMessage' and item.get('clientId') == request['client_id'] for item in turn.get('items', []))), None)
-            if not turn or turn.get('status') not in ('completed', 'failed', 'interrupted'):
+            # A separate app-server can report the desktop's unfinished turn as
+            # interrupted. Only a recorded completion time confirms it ended.
+            if not turn or turn.get('completedAt') is None or turn.get('status') not in ('completed', 'failed', 'interrupted'):
                 continue
             texts = [item['text'] for item in turn.get('items', []) if item.get('type') == 'agentMessage' and item.get('phase') != 'commentary' and item.get('text')]
             thread = self._call('thread/read', {'threadId': request['thread']})['thread'] if request['message_id'] in self.active_requests else None
