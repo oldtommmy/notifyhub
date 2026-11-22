@@ -1,8 +1,9 @@
 # Native Feishu continuation (experimental)
 
 Runs **inside the desktop dsh host**, using `ctx.agents.get(id).followup()`.
-The Python child only handles Feishu WebSocket I/O; it never runs headless,
-resumes a competing writer, changes providers, or copies conversation history.
+The Python child handles Feishu WebSocket I/O and can queue prompts to an open
+Codex desktop conversation through its local App Server. The dsh continuation
+path sends input to the owning desktop agent.
 The desktop host must remain running and the Mac must stay awake and online.
 
 Verified against the bundled service source of dsh **0.2.2-rc.5**. Real-host
@@ -11,46 +12,46 @@ compatibility and end-to-end phone testing are separate from the mock tests.
 ## Installation
 
 Preferred: open `python3 scripts/notifyhub.py gui`, save the Feishu credentials,
-then choose Desktop → **完成通知＋dsh 续聊**. Import the complete `bot-config.json`
+then use the **飞书续聊** card. Import the complete `bot-config.json`
 in the Feishu console. Enter verified allowed open_ids and explicitly enable
 continuation after subscribing to messages; enable buttons after adding card
 callbacks. Click install/apply, then restart dsh when its current work finishes.
-The GUI prepares the stable runtime and Python dependency and installs both
-plugins. Leaving the enabled checkbox off installs without enabling execution.
+The GUI prepares the Python runtime and configures the unified
+`dsh-notifyhub` bundle. Leaving both engine checkboxes unchecked keeps
+continuation disabled. Apply the same settings to migrate an older two-plugin
+installation while preserving the configs, bindings and ledgers.
 
 ### Manual installation
 
 1. Install Python 3.12 and `lark-oapi>=1.8` in a dedicated virtual environment.
-2. Copy `scripts/` and this plugin to a stable runtime directory. Do not point
-   the installed plugin at a checkout that switches branches.
-3. Prepare a separate notifyhub config with `bridge.enabled=true`, a verified
-   owner `open_id` in `bridge.allow_open_ids`, `bridge.default_agent="dsh"`, and
-   the existing Feishu app credentials. Keep it mode 600. Configure the Feishu
-   application to subscribe to `im.message.receive_v1`, with single-chat read
-   permission, and publish the application version.
-4. Install this bundle with `dsh plugin --profile desktop add link:/absolute/plugin`.
-   In the desktop profile patch, add:
+2. Prepare a separate config with the Feishu app credentials, an allowed
+   verified `open_id`, and the selected engines under `bridge`. Use
+   `bridge.enabled=true` and set `bridge.dsh_enabled` /
+   `bridge.codex_enabled` independently. Keep the config mode 600.
+3. Install the unified [dsh-notifyhub bundle](../dsh/README.md) in the desktop
+   profile. Enable its continuation transport in the profile patch:
 
 ```yaml
-- id: notifyhub-native-bridge
+- id: dsh-notifyhub
   config:
-    enabled: true
-    command:
-      - /absolute/runtime/.venv/bin/python
-      - /absolute/runtime/scripts/notifyhub.py
-      - --config
-      - /absolute/native-bridge.json
-      - bridge
-      - native-transport
+    continuation:
+      enabled: true
+      command:
+        - /absolute/runtime/.venv/bin/python
+        - /absolute/runtime/scripts/notifyhub.py
+        - --config
+        - /absolute/native-bridge.json
+        - bridge
+        - native-transport
 ```
 
-5. Update the ordinary `dsh-notifyhub/lib/index.js` with the native-turn exclusion
-   in this branch. Existing notification Python code can stay on the stable
-   notification release. Restart dsh when its current work has finished.
+4. Restart dsh Desktop. For Codex continuation, keep the target Codex Desktop
+   chat open and use a local CLI with queue and turn history support
+   (0.155.1 verified). Finish approvals in the owning desktop app.
 
-The transport uses the same singleton lock as the old bridge. Do not run both.
-The bundle defaults to **disabled**; installing it alone does not enable remote
-execution. Credentials stay in Python config, never in the host protocol.
+Continuation is disabled by default. Store credentials in the Python config.
+Stop the legacy headless bridge before starting the native transport because
+they share the singleton lock.
 
 ## Phone flow
 
@@ -80,8 +81,7 @@ use the desktop approval UI; phone-side approval is not implemented.
 - `agent/inbox/claimed` associates the input id with its actual turn. Only that
   turn's `turn/end` returns a result. Desktop turns and older answers are excluded.
 - The ordinary notifier suppresses only turns identified as phone-owned, using
-  a shared in-process turn registry. Standalone native-plugin installation does
-  not replace the ordinary notifier; update both as described above.
+  a shared in-process turn registry in the unified bundle.
 - Results reply to the original Feishu message with a stable per-response UUID.
   Network ambiguity is recorded; there is no blind resend or legacy outbox.
 - Ledger and bindings survive reload. Uncertain/pending requests are retained

@@ -84,7 +84,7 @@ def status_payload(config_file):
                     and feishu_app.get("app_secret")
                     and feishu_app.get("receive_id")
                 ),
-                "receive_id_type": feishu_app.get("receive_id_type", "email"),
+                "receive_id_type": feishu_app.get("receive_id_type", "open_id"),
                 "receive_id": feishu_app.get("receive_id", ""),
             },
             "imessage": {

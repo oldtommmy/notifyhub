@@ -35,7 +35,7 @@ def build_native_card(view, max_chars=3000, action_value=None):
                 elements.append({'tag': 'action', 'actions': [button('继续此会话', action_value('attach', row['id']), 'primary')]})
         if not rows:
             elements.append(markdown('暂无可读取的历史主会话。请先在桌面 dsh 打开一个对话，再发「会话」。'))
-        elements.append(markdown(f"共 {view.get('total', len(rows))} 个主会话 · 第 {view.get('page', 0) + 1}/{view.get('pages', 1)} 页 · 按最近活动排序"))
+        elements.append(markdown((f"共 {view['total']} 个主会话 · " if view.get('total') is not None else '') + f"第 {view.get('page', 0) + 1} 页 · 按最近活动排序"))
         if view.get('pages', 1) > 1:
             elements.append(markdown('发送 **上一页** 或 **下一页** 翻页。'))
     else:
@@ -67,6 +67,8 @@ def build_native_card(view, max_chars=3000, action_value=None):
         if kind != 'sessions' and session.get('id'):
             controls.insert(0, button('切回此会话' if kind == 'result' else '继续此会话', action_value('attach', session['id']), 'primary'))
         elements.append({'tag': 'action', 'actions': controls})
+    if view.get('engine') == 'Codex':
+        title = 'Codex · ' + title
     return {'config': {'wide_screen_mode': True}, 'header': {'template': color, 'title': {'tag': 'plain_text', 'content': title}}, 'elements': elements}
 
 

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Notifyhub",
-    "description": "DeepSeek Harness 每轮结束时，通过飞书应用机器人私聊发送卡片，包含会话标题、最近提问、最终回答和模型。"
+    "description": "将 DeepSeek Harness 完成结果发到飞书私聊，也可按需开启 dsh 或 Codex 桌面续聊。"
   }
 }

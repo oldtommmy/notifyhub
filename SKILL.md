@@ -1,20 +1,20 @@
 ---
 name: notifyhub
-description: Configure and troubleshoot Feishu completion notifications for Codex, DeepSeek Harness (dsh), Claude Code and Command Code, or native Feishu continuation of dsh conversations. Use for notifyhub、完成通知、飞书机器人配置、通知 hook、剩余额度通知、飞书续聊 dsh、会话卡片和按钮切换. Supports local configuration, permission presets, hook/plugin installation and end-to-end checks.
+description: Configure and troubleshoot Feishu completion notifications for Codex, DeepSeek Harness (dsh), Claude Code and Command Code, or native Feishu continuation of dsh and Codex conversations. Use for notifyhub、完成通知、飞书机器人配置、通知 hook、剩余额度通知、飞书续聊 dsh、飞书续聊 Codex、会话卡片和按钮切换. Supports local configuration, permission presets, hook/plugin installation and end-to-end checks.
 metadata:
   version: "0.9.2"
 ---
 
 # notifyhub
 
-Resolve `SKILL_ROOT` to this directory and use its bundled scripts. Respect the user's selected scope: completion notifications and native dsh continuation have different installation paths. Read the existing config and installed versions before changing a working setup; do not expose credentials when inspecting them.
+Resolve `SKILL_ROOT` to this directory and use its bundled scripts. Respect the user's selected scope: the unified dsh plugin provides completion notifications and optional desktop continuation; other agents install their own notification hooks. Read the existing config and installed versions before changing a working setup; do not expose credentials when inspecting them.
 
 ## Choose the route
 
 | Request | Route | Read when needed |
 |---|---|---|
 | Completion notifications | Python CLI + corresponding hook or notification plugin | [Feishu setup](references/feishu-setup.md), [configuration](references/config.md) |
-| Feishu continues a dsh conversation | Native plugin inside the desktop dsh host | [Native bridge installation and limits](integrations/dsh-native-bridge/README.md) |
+| Feishu continues a dsh or Codex conversation | Unified dsh-notifyhub plugin inside dsh Desktop | [Native bridge installation and limits](integrations/dsh-native-bridge/README.md) |
 | Delivery failure or duplicates | Identify the actual launcher/version, state file and sender before changing retry behavior | [Troubleshooting](references/troubleshooting.md) |
 
 Default to Feishu app-bot private messages. Preserve a working webhook or other channel when that is the user's preference. Native continuation is experimental; the desktop host must remain running and the Mac awake/online. It is separate from the legacy `bridge start` headless implementation.
@@ -25,7 +25,7 @@ Default to Feishu app-bot private messages. Preserve a working webhook or other 
 2. Open the local GUI first (`python3 "$SKILL_ROOT/scripts/notifyhub.py" gui`); keep it running while the user creates the Feishu app and returns to fill credentials. The GUI does not establish the native bridge WebSocket.
 3. Guide Feishu setup using [references/feishu-setup.md](references/feishu-setup.md). Default to importing the complete [bot-config.json](bot-config.json) in the Feishu console in one batch, as requested by the maintainer; do not make users search permissions one by one. Keep the smaller assets presets as an optional alternative only when the user requests reduced scope. The full preset includes app and user scopes; importing it does not itself initiate user OAuth.
 4. Let the user fill App ID/Secret in the local GUI or environment. Never ask them to paste App Secret into chat, print it, or put its literal value in a displayed command.
-5. Discover the recipient through the GUI or probe. Optional app-info/chat-list permissions support discovery; a verified manual recipient is also valid. Never guess an `open_id` or reuse one from another app without verifying it.
+5. Use `open_id` for new setups. Once App ID and App Secret are filled, the GUI automatically looks up the app owner when the recipient field is empty. The user can retry with 获取接收人 or enter a verified recipient. Optional app-info/chat-list permissions support discovery; a verified manual recipient is also valid. Never guess an `open_id` or reuse one from another app without verifying it.
 6. Save config, test delivery, install only the requested hook/plugin, and run `doctor`. Config/hook writers back up their previous files.
 
 ```bash
@@ -59,19 +59,30 @@ DSH Desktop uses the `desktop` profile; `dsh web` uses `web`. Install into the a
 
 Quota is best-effort and cached. Notification delivery must not depend on a successful quota lookup. Adapters exclude reasoning/tool calls and filter dsh subagents by default.
 
-## Native dsh continuation workflow
+## Native desktop continuation workflow
 
 Read [integrations/dsh-native-bridge/README.md](integrations/dsh-native-bridge/README.md) before installation. It documents the actual configuration and reliability boundaries.
 
 1. Verify the user's dsh version and service interfaces. The implementation was checked against dsh 0.2.2-rc.5. Use `sessionQuery` for the historical main-session catalog and `sessionController.resolveAgent` for cold restoration; send input through the owning agent's native inbox. Do not spawn headless to compete with the desktop writer.
 2. Guide the user to import the complete [bot-config.json](bot-config.json), the same default used for notifications. Permission import, message event subscription and card callback subscription are separate settings. Subscribe to `im.message.receive_v1` using the outbound long connection. Enable buttons only after `card.action.trigger` is configured for long-connection callbacks.
-3. Prefer the GUI desktop mode **完成通知＋dsh 续聊**: save credentials, enter verified allowlist IDs, explicitly select enabled/card-callback options, then install/apply. The backend prepares a stable runtime, Python dependency, both plugins, separate config and profile patch. Installation without the enabled checkbox keeps remote continuation disabled. For manual installation, prepare a dedicated stable runtime directory with `scripts/`, the native plugin and a Python environment containing `lark-oapi>=1.8`. Use a separate config such as `~/.config/notifyhub/native-bridge.json`; back up existing files and preserve notification settings. Avoid linking the live runtime to a checkout that changes branches.
+3. Prefer the **飞书续聊** card in the GUI: save credentials, enter verified allowlist IDs, select dsh, Codex or both after subscribing to messages, and enable card buttons after subscribing to card callbacks, then install/apply. The GUI installs one `dsh-notifyhub` plugin or preserves an existing unified Market installation, prepares its stable Python runtime and separate config, and migrates an older two-plugin desktop installation. Leaving both agents unchecked keeps remote continuation disabled. Both engines currently share the transport hosted by the dsh Desktop plugin. For manual installation, prepare a dedicated stable runtime directory with `scripts/`, the unified plugin and a Python environment containing `lark-oapi>=1.8`. Use a separate config such as `~/.config/notifyhub/native-bridge.json`; back up existing files and preserve notification settings. Avoid linking the live runtime to a checkout that changes branches.
 4. Set `bridge.enabled=true`, `bridge.default_agent="dsh"`, and the verified owner's `open_id` in `bridge.allow_open_ids`. Empty allowlists reject everyone. `bridge.card_actions` defaults false; keep numeric selection usable without callbacks.
-5. Install `dsh-notifyhub-native-bridge` into the desktop profile and apply its documented command array. `install-dsh` installs the ordinary notifier, not this separate native plugin. Its child command ends with `bridge native-transport` and uses the dedicated config.
-6. Ensure the ordinary dsh notification plugin includes the phone-owned-turn exclusion from the same release. Do not run native and legacy bridges simultaneously; they share a singleton guard and otherwise compete for events.
+5. Use the unified `dsh-notifyhub` package from DSH Market, GitHub Releases or the GUI. `install-dsh` installs the bundle with notifications on by default. To enable continuation, apply the GUI settings or configure `continuation` in the desktop profile as documented. Its child command ends with `bridge native-transport`.
+6. Keep the legacy headless bridge stopped while the native transport is active. The unified plugin suppresses ordinary dsh notifications for phone-owned turns.
 7. Restart dsh when its current task is finished. Verify: 会话 → select/bind a session → send a small prompt → one Feishu result and the same turn in the original desktop history. Check historical restoration and paging separately; report what has actually passed.
 
 The native bridge preserves the original session's permissions, model and cwd. Approvals still require the desktop UI; do not globally disable approval to make phone interaction appear unattended. One outstanding phone request per session is currently allowed. Buttons expire after 15 minutes or a transport restart; request a new list. Unknown submission/delivery outcomes must not trigger a blind rerun. Preserve the durable ledger when diagnosing stuck requests.
+
+For Codex, check that the local CLI supports the queue and turn history APIs (verified on 0.155.1). Keep dsh Desktop running and the target chat open in Codex Desktop. The bridge matches the submitted message to its exact turn and waits for a recorded completion time before sending the result.
+
+## Feishu commands
+
+These are messages sent to the bot in Feishu, not terminal commands. Explain the flow as **list → select → send a prompt**.
+
+- **会话** or `/sessions` lists sessions for the selected agent. **DSH会话** switches to dsh. **Codex会话** switches to Codex when the experimental Codex GUI option is enabled.
+- Click **继续此会话**, reply with the row number within five minutes, or send `/attach 2` to select row 2 of the current page.
+- **上一页** and **下一页** change pages. **状态** or `/status` shows the current binding.
+- Send ordinary text after binding. It goes to the selected agent's original conversation. Use **切回此会话** on an answer card to return to its conversation.
 
 ## Diagnostics and boundaries
 

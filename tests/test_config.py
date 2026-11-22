@@ -36,6 +36,14 @@ class ConfigTests(unittest.TestCase):
             target, created = ensure_config(path)
             self.assertTrue(created)
             self.assertTrue(target.exists())
+            self.assertEqual(load_config(target, expand=False)["channels"]["feishu_app"]["receive_id_type"], "open_id")
+
+    def test_preserves_legacy_email_recipient_without_a_type(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            save_config({"channels": {"feishu_app": {"receive_id": "owner@example.test"}}}, path)
+            app = load_config(path, expand=False)["channels"]["feishu_app"]
+        self.assertEqual(app["receive_id_type"], "email")
 
 
 if __name__ == "__main__":

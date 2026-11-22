@@ -27,6 +27,7 @@ class LogTests(unittest.TestCase):
                     "imessage": {"enabled": False},
                 },
                 "log_path": directory,
+                "state_path": str(Path(directory) / "state.json"),
             },
             path,
         )

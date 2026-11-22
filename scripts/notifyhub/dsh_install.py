@@ -15,6 +15,8 @@ def find_plugin():
         candidate = parent / "integrations" / "dsh" / "package.json"
         if candidate.exists():
             return candidate.parent
+        if (parent / "lib/native-bridge.js").is_file() and (parent / "package.json").is_file():
+            return parent
     return None
 
 

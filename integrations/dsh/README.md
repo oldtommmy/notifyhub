@@ -1,53 +1,48 @@
-# dsh-notifyhub
+# NotifyHub for DeepSeek Harness
 
-DeepSeek Harness (`dsh`) bundle plugin for notifyhub. It listens to the persisted
-`session/event` stream, and on `turn/end` sends the session metadata, recent user
-prompt, and last assistant message to the notifyhub CLI (`notifyhub hook dsh`).
+One plugin for Feishu completion cards and optional continuation of dsh and
+Codex desktop chats. The plugin sends title, model, prompt and answer in
+completion cards. Continuation is opt-in and requires dsh Desktop.
 
-The payload contains the session title, the last human user message, the last
-assistant `text` block, and the model. Reasoning blocks, tool calls, and synthetic
-context messages (`runtime-context`, `time-context`, `skill-catalog`,
-`model-selection`, `user-approval`) are not included.
+## Install and configure
 
-## Install
+Search for **NotifyHub** in DSH Market or install the
+[release package](https://github.com/oldtommmy/notifyhub/releases/latest):
 
-```bash
-dsh plugin --profile web add link:/absolute/path/to/notifyhub/integrations/dsh
+```sh
+dsh plugin --profile desktop add https://github.com/oldtommmy/notifyhub/releases/latest/download/dsh-notifyhub.tgz
 ```
 
-Or from the notifyhub skill:
+For notifications only in dsh web, use the `web` profile. Open the NotifyHub
+GUI from the checkout or the installed bundle:
 
-```bash
-python3 /absolute/path/to/notifyhub/scripts/notifyhub.py install-dsh --profile web
+```sh
+python3 scripts/notifyhub.py gui
+# If installed in the default dsh Desktop profile:
+python3 ~/.dsh/profiles/desktop/node_modules/dsh-notifyhub/scripts/notifyhub.py gui
 ```
 
-From npm (after the package is published):
+In the Feishu developer console, import the complete
+[bot-config.json](https://github.com/oldtommmy/notifyhub/blob/main/bot-config.json)
+and save the bot credentials in the local GUI. For continuation, subscribe to
+the message event and optionally the card-action callback over long connection.
+Use the GUI's **飞书续聊** card to set the verified `open_id` allowlist and
+select dsh, Codex, or both. Apply and restart dsh Desktop. This also migrates
+older two-plugin desktop installations.
 
-```bash
-dsh plugin --profile web add dsh-notifyhub
-dsh plugin --profile desktop add dsh-notifyhub
-```
+Start in Feishu with **DSH会话** or **Codex会话**, choose a session and send
+your next message. Keep dsh Desktop running. For Codex, also open the target
+chat in Codex Desktop and keep a compatible local Codex CLI installed.
 
-Do not publish this directory directly: the npm build step at the repository root
-(`python3 scripts/build_npm.py`) copies the Python launcher into `scripts/` so the
-package is self-contained.
+See [the full setup guide](https://github.com/oldtommmy/notifyhub#quick-start)
+for Feishu setup, commands and troubleshooting. Configuration and conversation
+state are stored locally. For a custom Python command, set `NOTIFYHUB_PYTHON`
+or override `config.command` in the `dsh-notifyhub` profile row.
 
-Restart `dsh web` after installing a bundle. For headless tasks, install into the
-`headless` profile as well.
+## Package development
 
-## Configuration
+Run `python3 scripts/build_npm.py` from the repository root. Pack the output
+directory so the release includes the Python launcher and the continuation
+transport. A local checkout can use `link:/absolute/notifyhub/integrations/dsh`.
 
-The plugin defaults to the notifyhub launcher next to this package. To override it,
-add a config block to the patch row:
-
-```yaml
-- insert:
-    - id: dsh-notifyhub
-      name: dsh-notifyhub
-      config:
-        command: ["python3", "/absolute/path/to/notifyhub/scripts/notifyhub.py", "hook", "dsh"]
-```
-
-Subagent sessions are filtered by notifyhub, not by this plugin. The plugin
-always forwards `origin`, and the adapter drops subagent turns unless
-`dsh.include_subagents` is `true` in `~/.config/notifyhub/config.json`.
+Author: oldtommmy. Contributor: OpenAI Codex.

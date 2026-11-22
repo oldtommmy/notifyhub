@@ -1,7 +1,9 @@
 {
   "name": "dsh-notifyhub",
-  "version": "0.1.0",
-  "description": "Feishu private-chat notifications for DeepSeek Harness turns.",
+  "version": "0.2.0",
+  "description": "Feishu completion notifications and desktop session continuation for DeepSeek Harness and Codex.",
+  "author": "oldtommmy",
+  "contributors": ["OpenAI Codex"],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -43,7 +45,7 @@
     }
   },
   "engines": {
-    "dsh": ">=0.1.5-0"
+    "dsh": ">=0.1.5-0 || >=0.2.2-rc.5 <0.2.2"
   },
   "publishConfig": {
     "access": "public"

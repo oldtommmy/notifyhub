@@ -11,6 +11,7 @@ from .feishu_listener import FeishuListener
 from .log import get_logger
 from .native_cards import build_native_card
 from .native_actions import CardActions
+from .codex_bridge import CodexBridge
 from .bridge import is_allowed
 from .feishu_listener import SeenMessages
 
@@ -25,6 +26,7 @@ class NativeTransport:
         self.buttons_enabled = bool(config.get('bridge', {}).get('card_actions', False))
         self.listener = FeishuListener(config, self.inbound, logger, reply=self.refusal, card_action=self.handle_card_action)
         self.outbound = queue.Queue(maxsize=256)
+        self.codex = CodexBridge(config, self.enqueue, logger, state_path=config.get('bridge', {}).get('codex_ledger_path'))
         self.worker = threading.Thread(target=self._send_loop, daemon=True)
 
     def inbound(self, **message):
@@ -32,7 +34,14 @@ class NativeTransport:
         if message.get('kind') == 'agent':
             message['kind'] = 'task'
         self.targets[message['message_id']] = message['chat_id']
-        self.emit({'type': 'message', **message})
+        if self.codex.wants(message):
+            self.codex.enqueue({'type': 'message', **message})
+        elif self.codex.dsh_enabled:
+            self.emit({'type': 'message', **message})
+        else:
+            self.enqueue({'type': 'reply', 'message_id': message['message_id'],
+                          'text': 'dsh 续聊未启用。发送“Codex会话”选择 Codex 对话。',
+                          'key': 'dsh-disabled'})
 
     def handle_card_action(self, data):
         from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTriggerResponse
@@ -53,7 +62,7 @@ class NativeTransport:
             return toast('已收到这次操作，请查看回复。')
         self.card_replies[request_id] = parent
         self.inbound(kind=value['kind'], payload=value['payload'], message_id=request_id,
-                     chat_id=chat, sender_id=sender, chat_type='')
+                     chat_id=chat, sender_id=sender, chat_type='p2p' if value.get('engine') == 'codex' else '', engine=value.get('engine', 'dsh'))
         return toast('已收到，正在处理。')
 
     def refusal(self, message_id, text):
@@ -73,8 +82,11 @@ class NativeTransport:
             self.receipt(response, 'not_sent')
 
     def receipt(self, response, status):
-        self.emit({'type': 'delivery', 'request_id': response.get('request_id'),
-                   'key': response.get('key'), 'status': status})
+        receipt = {'type': 'delivery', 'request_id': response.get('request_id'), 'key': response.get('key'), 'status': status}
+        if response.get('request_id') in self.codex.data['requests']:
+            self.codex.enqueue(receipt)
+        else:
+            self.emit(receipt)
 
     def _send_loop(self):
         while True:
@@ -91,7 +103,7 @@ class NativeTransport:
                 if message_id in self.card_replies:
                     key += ':' + message_id
                 if response.get('view'):
-                    action_value = (lambda kind, payload: self.actions.sign(self.targets[message_id], kind, payload)) if self.buttons_enabled else None
+                    action_value = (lambda kind, payload: self.actions.sign(self.targets[message_id], kind, payload, engine='codex' if response['view'].get('engine') == 'Codex' else 'dsh')) if self.buttons_enabled else None
                     card = build_native_card(response['view'], max_chars=limit, action_value=action_value)
                     feishu_app.reply_card(target, card, app, dedupe_key=key)
                 else:
@@ -132,5 +144,6 @@ def cmd_native_transport(args):
             except (ValueError, TypeError) as error:
                 logger.warning('invalid native bridge frame: %s', error)
     finally:
+        transport.codex.close()
         lock.close()
     return 0
