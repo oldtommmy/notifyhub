@@ -4,6 +4,12 @@
 
 ### Added
 
+- GUI desktop installer now offers notification-only or notification plus native
+  continuation, with an explicit allowlist, enable switch, card-callback switch,
+  isolated runtime/dependency setup and installation/configuration status.
+- Onboarding and the Skill default to the complete bot-config.json permission
+  import; smaller presets remain available as an optional alternative.
+
 - Native dsh Feishu continuation, historical-session discovery/restoration,
   paginated rich cards and authenticated session-selection buttons.
 - Separate notification/continuation permission presets and rewritten onboarding

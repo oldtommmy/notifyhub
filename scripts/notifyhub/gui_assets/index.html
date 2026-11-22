@@ -445,7 +445,7 @@
         <div class="card-head">
           <div>
             <h2>DeepSeek Harness</h2>
-            <p>dsh 会话结束也会发飞书。</p>
+            <p>完成通知，或在飞书继续桌面上的同一个对话。</p>
           </div>
           <span id="dshPill" class="pill pill-off">未检测到 dsh</span>
         </div>
@@ -455,6 +455,23 @@
             <button type="button" role="tab" data-value="desktop" aria-selected="true">桌面版</button>
             <button type="button" role="tab" data-value="web" aria-selected="false">Web</button>
           </div>
+        </div>
+        <label class="field" style="margin-top:14px">
+          <span>安装功能</span>
+          <select id="dshMode">
+            <option value="notify">仅完成通知</option>
+            <option value="native" id="dshNativeOption">完成通知＋dsh 续聊（实验性）</option>
+          </select>
+        </label>
+        <div id="dshNativeFields" hidden>
+          <label class="field" style="margin-top:12px">
+            <span>允许使用续聊的 open_id</span>
+            <input id="dshAllowedIds" type="text" placeholder="ou_...，多个用逗号分隔" autocomplete="off" spellcheck="false">
+          </label>
+          <p class="hint">先保存上方的飞书凭据，并导入 <a href="https://github.com/oldtommmy/notifyhub/blob/main/bot-config.json" target="_blank" rel="noopener noreferrer">bot-config.json 完整权限预设</a>。仅填写已核实的用户 ID；留空时只安装，不启用。</p>
+          <label><input id="dshNativeEnabled" type="checkbox"> 已配置接收消息事件，启用续聊</label><br>
+          <label><input id="dshCardActions" type="checkbox"> 已配置卡片回调，启用会话按钮</label>
+          <p class="hint">事件配置：长连接＋im.message.receive_v1。回调配置：长连接＋card.action.trigger。dsh App 需保持运行；审批仍在桌面处理。</p>
         </div>
         <div class="row-actions">
           <button class="btn" id="installDshBtn">安装 DSH 插件</button>
@@ -502,6 +519,7 @@ let state = { config: null, dirty: false, toastTimer: null };
 let previewGoalValue = "active";
 let receiveTypeValue = "open_id";
 let dshProfile = "desktop";
+let dshNativeHydrated = false;
 const RECEIVE_TYPES = [
   { value: "open_id", label: "open_id", hint: "应用所有者 / 用户本人，默认发给你自己" },
   { value: "email", label: "邮箱", hint: "发给租户内该邮箱对应的用户" },
@@ -757,7 +775,16 @@ async function loadStatus() {
   else setPill("dshPill", "未检测到 dsh", "off");
 
   if (!profiles[dshProfile]) dshProfile = dsh.desktop_app || desktopInstalled ? "desktop" : "web";
+  const native = dsh.native || {};
+  if (!dshNativeHydrated) {
+    $("dshAllowedIds").value = (native.allow_open_ids || []).join(", ");
+    $("dshNativeEnabled").checked = native.enabled === true;
+    $("dshCardActions").checked = native.card_actions === true;
+    if (native.installed) $("dshMode").value = "native";
+    dshNativeHydrated = true;
+  }
   selectDshProfile(dshProfile);
+  if (native.installed) setPill("dshPill", native.enabled ? "通知＋续聊已配置" : "续聊已装 · 未启用", native.enabled ? "ok" : "warn");
 
   $("dshHint").innerHTML = desktopInstalled
     ? "已安装到 desktop profile；重启 DeepSeek Harness 生效。"
@@ -766,6 +793,8 @@ async function loadStatus() {
       : dsh.dsh_found
         ? "选择目标后安装；桌面版装完重启 App，Web 重启 <code>dsh web</code>。"
         : "未找到可用 CLI。已检查 PATH 和桌面 App；可设置 <code>NOTIFYHUB_DSH_BIN</code> 后重启 GUI，或安装 <code>npm install -g @deepseek-ai/dsh</code>，再验证 <code>dsh --version</code>。";
+
+  if (native.installed) $("dshHint").textContent = "原生续聊已安装。" + (native.enabled ? "已配置启用，需重启 dsh 加载；可在飞书发“会话”验证。" : "尚未启用；填写允许使用者并勾选启用后，点击安装并应用配置。") + "修改 native 配置后都需重启 dsh，GUI 不会中断当前任务。";
 
   $("hooksHint").innerHTML = '安装后在 Codex 里运行 <code>/hooks</code> 信任 notifyhub。';
 }
@@ -1041,8 +1070,12 @@ function selectDshProfile(value) {
   for (const button of document.querySelectorAll("#dshProfile [role=tab]")) {
     button.setAttribute("aria-selected", button.dataset.value === value ? "true" : "false");
   }
+  $("dshNativeOption").disabled = value !== "desktop";
+  if (value !== "desktop") $("dshMode").value = "notify";
+  const native = $("dshMode").value === "native";
+  $("dshNativeFields").hidden = !native;
   const install = $("installDshBtn");
-  if (install) install.textContent = value === "desktop" ? "安装到桌面版" : "安装到 Web";
+  if (install) install.textContent = native ? "安装通知＋续聊并应用配置" : value === "desktop" ? "安装通知到桌面版" : "安装通知到 Web";
 }
 
 async function installDsh() {
@@ -1052,10 +1085,12 @@ async function installDsh() {
   try {
     const data = await api("/api/hooks/install-dsh", {
       method: "POST",
-      body: JSON.stringify({ profile: dshProfile }),
+      body: JSON.stringify({ profile: dshProfile, mode: $("dshMode").value,
+        enabled: $("dshNativeEnabled").checked, card_actions: $("dshCardActions").checked,
+        allow_open_ids: $("dshAllowedIds").value.split(/[,，\s]+/).filter(Boolean) }),
     });
     const label = dshProfile === "desktop" ? "桌面版" : "Web";
-    toast(data.ok ? `DSH 插件已安装到${label}，重启后生效。` : (data.error || "安装失败"), data.ok ? "ok" : "error");
+    toast(data.ok ? (data.message || `DSH 插件已安装到${label}，重启后生效。`) : (data.error || "安装失败"), data.ok ? "ok" : "error");
     await loadStatus();
   } catch (error) {
     toast(error.message, "error");
@@ -1082,6 +1117,7 @@ function bindEvents() {
   $("testBtn").addEventListener("click", sendTest);
   $("installBtn").addEventListener("click", installHooks);
   $("installDshBtn").addEventListener("click", installDsh);
+  $("dshMode").addEventListener("change", () => selectDshProfile(dshProfile));
   for (const button of document.querySelectorAll("#dshProfile [role=tab]")) {
     button.addEventListener("click", () => selectDshProfile(button.dataset.value));
   }

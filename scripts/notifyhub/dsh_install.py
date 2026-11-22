@@ -83,7 +83,7 @@ def profile_installed(profile):
     except (OSError, ValueError):
         return False
     dependencies = data.get("dependencies") or {}
-    return any("dsh-notifyhub" in key for key in dependencies)
+    return "dsh-notifyhub" in dependencies
 
 
 def status():

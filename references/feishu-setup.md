@@ -2,12 +2,12 @@
 
 [← 返回 README](../README.md)
 
-先选使用方式，再申请相应权限：
+默认使用 **[bot-config.json 完整权限预设](../bot-config.json)**，在飞书后台一次导入，无需逐项搜索权限。
 
-| 使用方式 | 权限导入文件 | 额外配置 |
+| 使用方式 | 权限导入 | 导入后还需要 |
 |---|---|---|
-| 仅接收完成通知 | [feishu-notify-scopes.json](../assets/feishu-notify-scopes.json) | 开启机器人并发布应用 |
-| 完成通知＋手机续聊 | [feishu-native-scopes.json](../assets/feishu-native-scopes.json) | 消息事件；使用按钮时增加卡片回调 |
+| 仅接收完成通知 | `bot-config.json` | 开启机器人并发布应用 |
+| 完成通知＋手机续聊 | 同一份 `bot-config.json` | 单独配置接收消息事件；用按钮时增加卡片回调 |
 
 ## 0. 先打开 notifyhub GUI
 
@@ -32,7 +32,7 @@ notifyhub 使用应用的 `tenant_access_token`，当前通知和续聊流程不
 
 ## 2. 导入权限
 
-进入应用的 **权限管理 → 批量导入/导出权限 → 导入**，复制上表对应 JSON 的完整内容，检查应用身份权限清单，再申请开通。
+进入应用的 **权限管理 → 批量导入/导出权限 → 导入**，复制 **[bot-config.json](../bot-config.json)** 的完整内容，检查应用身份权限清单，再申请开通。
 
 飞书会校验权限是否存在、是否适用于该应用；需要审核或配置数据范围的权限，按后台提示完成。官方步骤见[批量导入导出 API 权限](https://open.feishu.cn/document/server-docs/application-scope/introduction)。
 
@@ -45,13 +45,11 @@ notifyhub 使用应用的 `tenant_access_token`，当前通知和续聊流程不
 | `application:application:self_manage` | 应用自身信息访问；用于自动查找接收人的可选配置 | 使用自动获取接收人时按接口和后台要求申请 |
 | `im:chat:read` | 读取机器人所在的群列表，作为接收人发现的可选回退 | 需要群列表发现时 |
 
-两份精简 JSON 只包含必需的应用身份消息权限，`user` 列表为空。可选的应用信息和群列表权限在后台按需添加；手动填写已核实的接收人时，可以跳过这些自动发现功能。
+### 完整预设与可选精简清单
 
-### 关于仓库里的 `bot-config.json`
+`bot-config.json` 包含 35 项应用身份权限、221 项用户身份权限，覆盖通知、续聊及文档等更多能力。默认安装流程直接使用这份完整预设。当前 notifyhub 收发消息使用应用身份，导入用户权限本身不会启动用户 OAuth 授权。
 
-[`bot-config.json`](../bot-config.json) 是完整权限导出，包含 **35 项应用身份权限、221 项用户身份权限**，覆盖文档、日历、邮箱等额外能力。它作为现有应用配置参考保留，**不是 notifyhub 的最小安装清单**。
-
-新建专用于 notifyhub 的应用时，优先使用本页链接的精简 JSON。导入精简文件只会增加申请权限，不会自动撤销应用之前已经开通的权限。
+需要自行控制授权范围时，可以改用[仅通知](../assets/feishu-notify-scopes.json)或[通知＋续聊](../assets/feishu-native-scopes.json)的精简清单，再按需补充应用信息和群列表发现权限。导入精简清单不会自动撤销已有权限。
 
 > **权限、事件、回调是三个独立配置。** 导入 JSON 后，续聊还需要下面的消息事件；卡片按钮还需要卡片回调。
 

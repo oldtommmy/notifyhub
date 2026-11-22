@@ -64,7 +64,9 @@ python3 scripts/notifyhub.py gui
 
 ### 3. 创建飞书机器人，回到 GUI 填写凭据
 
-到 [飞书开发者后台](https://open.feishu.cn/app) 创建企业自建应用，开启机器人能力。只接收通知时，导入 [通知权限 JSON](assets/feishu-notify-scopes.json)，按后台要求申请权限、配置应用可用范围并发布。
+到 [飞书开发者后台](https://open.feishu.cn/app) 创建企业自建应用，开启机器人能力。在权限管理中一次导入 **[bot-config.json 完整权限预设](bot-config.json)**，按后台要求申请权限、配置应用可用范围并发布。
+
+默认按完整 JSON 导入即可，无需逐个搜索权限。精简权限文件留给需要自行控制授权范围的用户。
 
 完整步骤见 **[飞书机器人配置教程](references/feishu-setup.md)**。应用配置完成后，回到已打开的 GUI：
 
@@ -137,6 +139,18 @@ Node.js 不存在时，先从 [Node.js 官方下载页](https://nodejs.org/en/do
 
 </details>
 
+### 在 GUI 安装通知＋dsh 续聊
+
+在 **DeepSeek Harness** 卡片中选择“桌面版”，将安装功能切换为 **完成通知＋dsh 续聊**：
+
+1. 先保存上方的飞书凭据，并按教程导入完整 `bot-config.json`。
+2. 填写允许使用者的 `open_id`（多个用逗号分隔）。
+3. 配好接收消息事件后勾选“启用续聊”；配好卡片回调后勾选“启用会话按钮”。
+4. 点击 **安装通知＋续聊并应用配置**。GUI 会准备独立运行目录、Python 依赖、两个插件和 desktop profile。
+5. 当前任务结束后重启 dsh，在飞书发“会话”验证。
+
+不勾选启用时，会安装插件但保持续聊关闭。GUI 显示安装和配置状态；保存启用设置不代表已在运行，需重启宿主验证。首次安装依赖需要联网。
+
 ## 也可以交给自己的 agent 安装
 
 把仓库的绝对路径交给能读取本地文件的 agent：
@@ -179,8 +193,8 @@ App Secret 由我在本机 GUI 或环境变量填写，不要让我贴到聊天�
 
 ### 配置入口
 
-1. 在[飞书配置教程](references/feishu-setup.md)中完成“续聊”部分：导入收发消息权限、订阅消息事件；需要按钮时再订阅卡片回调。
-2. 按 **[原生续聊安装说明](integrations/dsh-native-bridge/README.md#installation)** 安装独立插件、Python 运行环境和续聊配置。
+1. 在[飞书配置教程](references/feishu-setup.md)中完成“续聊”部分：导入完整 `bot-config.json`、订阅消息事件；需要按钮时再订阅卡片回调。
+2. 在 GUI 选择“完成通知＋dsh 续聊”安装；手动安装和可靠性说明见 **[原生续聊安装说明](integrations/dsh-native-bridge/README.md#installation)**。
 3. 在 `bridge.allow_open_ids` 中填写经过核实的本人 `open_id`，再启用续聊。列表为空时拒绝所有人。
 4. 安装当前分支的 dsh 通知插件版本，以排除手机发起轮次的重复完成通知。
 5. 重启 dsh，在飞书发“会话”，选择目标对话，再发送一条测试消息。

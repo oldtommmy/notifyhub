@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import dsh_install, quota
+from . import dsh_install, quota, native_install
 from .channels.feishu_app import RECEIVE_ID_TYPES
 from .codex_meta import codex_home, find_db
 from .config import config_path, deep_merge, load_config, save_config
@@ -99,9 +99,18 @@ def status_payload(config_file):
             "state_db": str(state_db) if state_db else "",
             "goals_db": str(goals_db) if goals_db else "",
         },
-        "dsh": dsh_install.status(),
+        "dsh": {**dsh_install.status(), "native": native_install.status(config_file)},
         "log_path": config.get("log_path", ""),
     }
+
+
+def install_dsh_payload(config_file, body):
+    mode = body.get("mode", "notify")
+    if mode == "native":
+        return native_install.install(config_file, body)
+    if mode != "notify":
+        return {"ok": False, "error": "未知的 DSH 安装模式"}
+    return dsh_install.install(str(body.get("profile") or "web"))
 
 
 def validate_config(config):
@@ -303,7 +312,7 @@ class GuiHandler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "removed": result["removed"], "path": str(result["path"])})
             elif parsed.path == "/api/hooks/install-dsh":
                 profile = str(body.get("profile") or "web")
-                result = dsh_install.install(profile)
+                result = install_dsh_payload(self.server.config_file, body)
                 result["profile"] = profile
                 self._json(result, 200 if result.get("ok") else 400)
             elif parsed.path == "/api/feishu/receivers":

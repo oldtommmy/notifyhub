@@ -10,6 +10,16 @@ compatibility and end-to-end phone testing are separate from the mock tests.
 
 ## Installation
 
+Preferred: open `python3 scripts/notifyhub.py gui`, save the Feishu credentials,
+then choose Desktop → **完成通知＋dsh 续聊**. Import the complete `bot-config.json`
+in the Feishu console. Enter verified allowed open_ids and explicitly enable
+continuation after subscribing to messages; enable buttons after adding card
+callbacks. Click install/apply, then restart dsh when its current work finishes.
+The GUI prepares the stable runtime and Python dependency and installs both
+plugins. Leaving the enabled checkbox off installs without enabling execution.
+
+### Manual installation
+
 1. Install Python 3.12 and `lark-oapi>=1.8` in a dedicated virtual environment.
 2. Copy `scripts/` and this plugin to a stable runtime directory. Do not point
    the installed plugin at a checkout that switches branches.
