@@ -85,15 +85,16 @@ Or manually:
 dsh plugin --profile web add link:"$SKILL_ROOT/integrations/dsh"
 ```
 
-From npm (once the package is published):
+Install the published bundle from DSH Market or [GitHub Releases](https://github.com/oldtommmy/notifyhub/releases/latest):
 
 ```bash
-dsh plugin --profile web add dsh-notifyhub
-dsh plugin --profile desktop add dsh-notifyhub
+dsh plugin --profile desktop add https://github.com/oldtommmy/notifyhub/releases/latest/download/dsh-notifyhub.tgz
 ```
 
-The npm package bundles the Python launcher under `scripts/`, so it is
-self-contained; the `link:` form is for a local checkout.
+The published package bundles the Python launcher under `scripts/`. Use
+`link:` for a local checkout. The unified bundle provides notifications in
+web and desktop profiles. Use the GUI's **飞书续聊** card to enable continuation
+in the desktop profile and migrate from the older separate bridge plugin.
 
 Restart `dsh web` after installing a bundle. For one-off/headless runs, install
 the plugin into the headless profile as well:

@@ -14,14 +14,14 @@ Codex · DeepSeek Harness · Claude Code · Command Code
 
 </div>
 
-notifyhub 把本地 agent 的完成结果发到你的飞书私聊，带上会话名、最近提问和回答。在实验性的 dsh 原生续聊模式下，你还可以从手机选择电脑上的对话，接着发消息，结果写回原会话。
+notifyhub 把本地 agent 的完成结果发到你的飞书私聊，带上会话名、最近提问和回答。启用实验性续聊后，可以在飞书选中桌面上的 dsh 或 Codex 会话，接着发消息并收到回答。
 
 | 我想做什么 | 选择 | 运行方式 |
 |---|---|---|
 | agent 跑完后收到提醒 | **完成通知** | 安装对应 hook 或 dsh 通知插件 |
-| 用飞书继续电脑上的 dsh 对话 | **原生续聊 · 实验性** | dsh 桌面插件＋飞书长连接 |
+| 用飞书继续电脑上的 dsh 或 Codex 对话 | **原生续聊 · 实验性** | 统一的 dsh 桌面插件＋飞书长连接 |
 
-> **安装路线**：`main` 同时包含完成通知与实验性原生续聊。两者独立配置；只需要完成通知时，完成快速开始即可。
+> dsh 侧只安装一个 **`dsh-notifyhub`** 插件。它提供完成通知，并可按需启用 dsh、Codex 或两者的飞书续聊。
 
 ## 一眼看懂
 
@@ -139,15 +139,15 @@ Node.js 不存在时，先从 [Node.js 官方下载页](https://nodejs.org/en/do
 
 </details>
 
-### 在 GUI 安装通知＋dsh 续聊
+### 安装统一的 dsh 插件
 
-在 GUI 打开独立的 **飞书续聊** 卡片：
+在 dsh 插件市场搜索 **NotifyHub**。也可以从 [GitHub Releases](https://github.com/oldtommmy/notifyhub/releases/latest) 下载 `dsh-notifyhub` 安装包。要配置续聊，打开 notifyhub GUI 的 **飞书续聊** 卡片。
 
 1. 先保存上方的飞书凭据，并按教程导入完整 `bot-config.json`。
 2. 填写允许使用者的 `open_id`（多个用逗号分隔）。
 3. 订阅接收消息后，按需勾选“dsh 续聊”或“Codex 续聊”。订阅卡片回调后可开启会话卡片按钮。
-4. 点击 **安装并应用续聊**。GUI 会准备独立运行目录、Python 依赖、两个插件和 desktop profile。
-5. 当前任务结束后重启 dsh，在飞书发“会话”验证。
+4. 点击 **安装并应用续聊**。GUI 会准备独立运行目录和 Python 依赖，并配置 desktop profile。若已有市场版统一插件，GUI 会沿用；旧双插件安装可在此迁移。
+5. 当前任务结束后重启 dsh，在飞书发“DSH会话”或“Codex会话”开始使用。
 
 不勾选启用时，会安装插件但保持续聊关闭。GUI 显示安装和配置状态；保存启用设置不代表已在运行，需重启宿主验证。首次安装依赖需要联网。
 
@@ -196,10 +196,9 @@ App Secret 由我在本机 GUI 或环境变量填写，不要让我贴到聊天�
 1. 在[飞书配置教程](references/feishu-setup.md)中完成“续聊”部分：导入完整 `bot-config.json`、订阅消息事件；需要按钮时再订阅卡片回调。
 2. 在 GUI 的“飞书续聊”卡片安装；手动安装和可靠性说明见 **[原生续聊安装说明](integrations/dsh-native-bridge/README.md#installation)**。
 3. 在 `bridge.allow_open_ids` 中填写经过核实的本人 `open_id`，再启用续聊。列表为空时拒绝所有人。
-4. 安装当前分支的 dsh 通知插件版本，以排除手机发起轮次的重复完成通知。
-5. 重启 dsh，在飞书发“会话”，选择目标对话，再发送一条测试消息。
+4. 重启 dsh，在飞书发“DSH会话”，选择目标对话，再发送消息。
 
-原生插件的 Python 子进程只负责飞书收发。旧的 `bridge start` / launchd headless 方案保留供开发排查，原生续聊按上面的独立插件说明安装，两者不要同时运行。
+原生插件的 Python 子进程只负责飞书收发。旧的 `bridge start` / launchd headless 方案保留供开发排查，使用原生续聊时请停用该旧服务，避免同时消费飞书事件。
 
 ### 飞书命令速查
 
@@ -224,14 +223,14 @@ App Secret 由我在本机 GUI 或环境变量填写，不要让我贴到聊天�
 
 ## 手机续聊 Codex（实验性）
 
-此功能在 `feat/codex-continuation` 分支。保持 dsh 桌面 App 运行以承载现有飞书长连接，并在 Codex 桌面端打开要继续的本地会话。
+保持 dsh 桌面 App 运行以承载现有飞书长连接，并在 Codex 桌面端打开要继续的本地会话。
 
 1. 在 notifyhub GUI 打开 **飞书续聊** 卡片，勾选 **Codex 续聊**。也可按需勾选 **dsh 续聊**。应用设置后重启 dsh。
 2. 与机器人私聊，发 **Codex会话**，点选或回复序号绑定本地会话。
 3. 直接发送文字。机器人确认入队后，由 Codex 原会话处理。审批仍在 Codex 界面完成。
 4. 发 **DSH会话** 可切回 dsh。
 
-首版通过 Codex 的实验性 App Server 队列协议提交输入，使用消息 ID 匹配结果。需要本机 CLI 支持队列及轮次读取接口；已核对的 CLI 版本为 0.155.1。每个会话允许一条未完成的手机请求。重启桥接后，请重新选择 Codex 入口，并在 Codex 中查看重启前仍在运行的请求。若同时安装了普通 Codex 完成通知 hook，可能收到原有的完成通知和续聊结果各一条。
+首版通过 Codex 的实验性 App Server 队列协议提交输入，按消息 ID 匹配原轮次，并在 Codex 写入完成时间后回传结果。需要本机 CLI 支持队列及轮次读取接口；已核对的 CLI 版本为 0.155.1。每个会话允许一条未完成的手机请求。重启桥接后，请重新选择 Codex 入口，并在 Codex 中查看重启前仍在运行的请求。若同时安装了普通 Codex 完成通知 hook，可能收到原有的完成通知和续聊结果各一条。
 
 相关接口见 [OpenAI CLI 参考](https://learn.chatgpt.com/docs/cli/reference)和 [Codex App Server](https://learn.chatgpt.com/docs/app-server)。
 
@@ -267,5 +266,9 @@ sh scripts/selftest.sh
 ```
 
 本地运行会读取 agent 的会话数据并发送所选内容到飞书；配置文件和会话备份留在本机。续聊沿用原会话的执行权限，请仅将自己的飞书身份加入允许列表。
+
+**作者** · [oldtommmy](https://github.com/oldtommmy)
+
+**协作者** · OpenAI Codex
 
 **MIT License** · [查看许可证](LICENSE)

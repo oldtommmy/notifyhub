@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
+import { apply as applyNative, inject as nativeServices } from "./native-bridge.js";
 
 export const name = "dsh-notifyhub";
 
@@ -151,6 +152,9 @@ function modelFrom(data) {
 }
 
 export function apply(ctx, config = {}) {
+  if (config.continuation?.enabled === true) {
+    ctx.plugin({ name: "notifyhub-continuation", inject: nativeServices, apply: applyNative }, config.continuation);
+  }
   if (config.enabled === false) return;
 
   const command = resolveCommand(config);

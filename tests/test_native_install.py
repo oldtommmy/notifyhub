@@ -26,10 +26,9 @@ class NativeGuiInstallTests(unittest.TestCase):
         self.profile.parent.mkdir(parents=True)
         self.profile.write_text('# User settings\n- id: unrelated\n  config:\n    script: !!js () => true\n')
         self.source = self.root / 'source'
-        for name in ('dsh', 'dsh-native-bridge'):
-            p = self.source / 'integrations' / name
-            p.mkdir(parents=True)
-            (p / 'package.json').write_text('{}')
+        plugin = self.source / 'integrations/dsh'
+        plugin.mkdir(parents=True)
+        (plugin / 'package.json').write_text('{}')
         (self.source / 'scripts').mkdir()
         (self.source / 'scripts/notifyhub.py').write_text('# launcher')
         python = native_install._python(self.runtime)
@@ -48,7 +47,7 @@ class NativeGuiInstallTests(unittest.TestCase):
     def install(self, **options):
         return native_install.install(self.config, {'profile': 'desktop', **options}, runtime=self.runtime, dsh_home=self.home)
 
-    def test_installs_both_plugins_disabled_and_keeps_source_config_and_ledger(self):
+    def test_installs_one_plugin_with_continuation_disabled(self):
         source = self.config.read_bytes()
         ledger = self.root / 'ledger.json'; ledger.write_text('keep')
         result = self.install(enabled=False, allow_open_ids=[])
@@ -59,7 +58,7 @@ class NativeGuiInstallTests(unittest.TestCase):
         self.assertEqual(ledger.read_text(), 'keep')
         command = native_install._run.call_args.args[0]
         self.assertIn('link:' + (self.runtime / 'integrations/dsh').as_posix(), command)
-        self.assertIn('link:' + (self.runtime / 'integrations/dsh-native-bridge').as_posix(), command)
+        self.assertEqual(len(command[4:]), 1)
         self.assertIn('!!js () => true', self.profile.read_text())
         self.assertIn('enabled: false', self.profile.read_text())
         self.assertIn('- id: dsh-notifyhub', self.profile.read_text())
@@ -82,7 +81,7 @@ class NativeGuiInstallTests(unittest.TestCase):
         self.assertTrue(result['ok'], result)
         self.assertEqual(load_config(target)['bridge']['timeout_seconds'], 999)
         self.assertTrue(load_config(target)['bridge']['card_actions'])
-        self.assertEqual(self.profile.read_text().count('- id: notifyhub-native-bridge'), 1)
+        self.assertEqual(self.profile.read_text().count('- id: dsh-notifyhub'), 1)
         self.assertTrue(Path(result['backup_path'], 'native-config.json').exists())
 
     def test_codex_can_enable_shared_transport_without_dsh(self):
@@ -125,7 +124,8 @@ class NativeGuiInstallTests(unittest.TestCase):
 
     def test_profile_patch_preserves_other_plugins_and_state_path(self):
         old = '- id: notifyhub-native-bridge\n  config:\n    enabled: false\n    state_path: /custom/ledger.json\n- id: other\n  config:\n    value: !!js 1 + 2\n'
-        new = native_install._patch_profile(old, ['/a b/python', 'launcher'], True)
+        new = native_install._patch_profile(old, ['python', 'hook'], ['/a b/python', 'launcher'], True)
         self.assertIn('state_path: /custom/ledger.json', new)
         self.assertIn('value: !!js 1 + 2', new)
-        self.assertEqual(new.count('- id: notifyhub-native-bridge'), 1)
+        self.assertNotIn('- id: notifyhub-native-bridge', new)
+        self.assertEqual(new.count('- id: dsh-notifyhub'), 1)

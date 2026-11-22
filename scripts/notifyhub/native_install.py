@@ -26,26 +26,42 @@ def _python(runtime):
     return runtime / '.venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
 
 
-def _patch_profile(text, command, enabled, plugin_id="notifyhub-native-bridge"):
+def _patch_profile(text, notify_command, command, enabled):
     first = next((line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith('#')), '')
     if first and not first.startswith('- '):
         raise ValueError('desktop 的 cordis.patch.yml 不是块式列表，请先按原生插件说明整理配置。')
     chunks = re.split(r'(?m)(?=^- )', text)
-    match = re.compile(r'''(?m)^(?:- |  )id:\s*["']?''' + re.escape(plugin_id) + r'''["']?\s*(?:#.*)?$''')
-    existing = [i for i, chunk in enumerate(chunks) if match.search(chunk)]
-    if len(existing) > 1:
+
+    def rows(plugin_id):
+        match = re.compile(r'''(?m)^- id:\s*["']?''' + re.escape(plugin_id) + r'''["']?\s*(?:#.*)?$''')
+        return [index for index, chunk in enumerate(chunks) if match.search(chunk)]
+
+    existing = rows('dsh-notifyhub')
+    legacy = rows('notifyhub-native-bridge')
+    if len(existing) > 1 or len(legacy) > 1:
         raise ValueError('desktop 存在重复的原生续聊配置，请先清理重复项。')
-    extra = ''
-    if existing:
-        # Preserve the one additional supported plugin option, including its YAML quoting.
-        found = re.search(r'(?m)^    state_path:.*$', chunks[existing[0]])
+    block = ('- id: dsh-notifyhub\n  config:\n    enabled: true\n'
+             '    command: ' + json.dumps(notify_command, ensure_ascii=False) + '\n'
+             '    continuation:\n      enabled: ' + str(enabled).lower() + '\n'
+             '      command: ' + json.dumps(command, ensure_ascii=False) + '\n')
+    for index in existing + legacy:
+        found = re.search(r'(?m)^ {4,6}(state_path:.*)$', chunks[index])
         if found:
-            extra = found.group(0) + '\n'
-    block = '- id: ' + plugin_id + '\n  config:\n    enabled: ' + str(enabled).lower() + '\n    command: ' + json.dumps(command, ensure_ascii=False) + '\n' + extra
+            block += '      ' + found.group(1) + '\n'
+            break
+    if legacy:
+        chunks[legacy[0]] = ''
     if existing:
         chunks[existing[0]] = block
         return ''.join(chunks)
-    return text.rstrip() + '\n\n' + block
+    return ''.join(chunks).rstrip() + '\n\n' + block
+
+
+def _dependencies(profile):
+    try:
+        return json.loads(profile.with_name('package.json').read_text(encoding='utf-8')).get('dependencies') or {}
+    except (OSError, ValueError):
+        return {}
 
 
 def status(config_file):
@@ -53,11 +69,10 @@ def status(config_file):
     cfg = load_config(str(target)) if target.exists() else {}
     bridge = cfg.get('bridge') or {}
     home = Path(os.environ.get('DSH_HOME', '~/.dsh')).expanduser()
-    try:
-        package = json.loads((home / 'profiles/desktop/package.json').read_text(encoding='utf-8'))
-    except (OSError, ValueError):
-        package = {}
-    return {'installed': 'dsh-notifyhub-native-bridge' in package.get('dependencies', {}),
+    desktop = home / 'profiles/desktop'
+    deps = _dependencies(desktop / 'cordis.patch.yml')
+    unified = (desktop / 'node_modules/dsh-notifyhub/lib/native-bridge.js').is_file()
+    return {'installed': unified or 'dsh-notifyhub-native-bridge' in deps,
             'enabled': bool(bridge.get('enabled')),
             'dsh_enabled': bool(bridge.get('enabled') and bridge.get('dsh_enabled', True)),
             'allow_open_ids': bridge.get('allow_open_ids', []),
@@ -107,9 +122,9 @@ def install(config_file, options, runtime=None, dsh_home=None):
     source = dsh_install.find_plugin()
     if not binary or not source:
         return {'ok': False, 'error': '未找到 dsh CLI 或 notifyhub 插件，请先完成环境检查。'}
-    root = source.parents[1]
-    if not (root / 'integrations/dsh-native-bridge/package.json').is_file():
-        return {'ok': False, 'error': '当前 notifyhub 包缺少原生续聊插件，请更新完整安装包。'}
+    scripts = source / 'scripts'
+    if not scripts.is_dir():
+        scripts = source.parents[1] / 'scripts'
     runtime = Path(runtime) if runtime else runtime_path()
     home = Path(dsh_home) if dsh_home else Path(os.environ.get('DSH_HOME', '~/.dsh')).expanduser()
     profile = home / 'profiles/desktop/cordis.patch.yml'
@@ -118,10 +133,9 @@ def install(config_file, options, runtime=None, dsh_home=None):
     try:
         with state_lock(runtime / 'installer'):
             old_patch = profile.read_text(encoding='utf-8') if profile.exists() else ''
-            new_patch = _patch_profile(old_patch, command, enabled)
             notify_command = [str(_python(runtime)), str(runtime / 'scripts/notifyhub.py'),
                               '--config', str(Path(config_file)), 'hook', 'dsh']
-            new_patch = _patch_profile(new_patch, notify_command, True, plugin_id='dsh-notifyhub')
+            new_patch = _patch_profile(old_patch, notify_command, command, enabled)
             backup = runtime.parent / ('native-backup-' + uuid.uuid4().hex[:12])
             backup.mkdir(parents=True, mode=0o700)
             for path, name in [(target, 'native-config.json'), (profile, 'cordis.patch.yml'), (profile.with_name('package.json'), 'package.json')]:
@@ -131,18 +145,21 @@ def install(config_file, options, runtime=None, dsh_home=None):
                 shutil.copytree(runtime / 'scripts', backup / 'scripts', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             if (runtime / 'integrations').exists():
                 shutil.copytree(runtime / 'integrations', backup / 'integrations', ignore=shutil.ignore_patterns('node_modules', '__pycache__'))
-            shutil.copytree(root / 'scripts', runtime / 'scripts', dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-            for name in ('dsh', 'dsh-native-bridge'):
-                shutil.copytree(root / 'integrations' / name, runtime / 'integrations' / name, dirs_exist_ok=True, ignore=shutil.ignore_patterns('node_modules', '__pycache__'))
+            shutil.copytree(scripts, runtime / 'scripts', dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             python = _python(runtime)
             if not python.is_file():
                 _run([sys.executable, '-m', 'venv', str(runtime / '.venv')])
             probe = subprocess.run([str(python), '-c', 'import lark_oapi'], capture_output=True, text=True, timeout=15)
             if probe.returncode:
                 _run([str(python), '-m', 'pip', 'install', 'lark-oapi>=1.8,<2'])
-            _run([binary, 'plugin', '--profile', 'desktop', 'add',
-                  'link:' + (runtime / 'integrations/dsh').as_posix(),
-                  'link:' + (runtime / 'integrations/dsh-native-bridge').as_posix()])
+            deps = _dependencies(profile)
+            plugin_command = [binary, 'plugin', '--profile', 'desktop']
+            market_plugin = profile.parent / 'node_modules/dsh-notifyhub/lib/native-bridge.js'
+            if not market_plugin.is_file() or deps.get('dsh-notifyhub', '').startswith('link:'):
+                local_plugin = runtime / 'integrations/dsh'
+                if source.resolve() != local_plugin.resolve():
+                    shutil.copytree(source, local_plugin, dirs_exist_ok=True, ignore=shutil.ignore_patterns('node_modules', '__pycache__'))
+                _run([*plugin_command, 'add', 'link:' + local_plugin.as_posix()])
             if (profile.read_text(encoding='utf-8') if profile.exists() else '') != old_patch:
                 raise RuntimeError('安装期间 desktop 配置发生变化，未覆盖新配置；请刷新后重试。')
             native = load_config(str(target)) if target.exists() else source_config
@@ -159,8 +176,14 @@ def install(config_file, options, runtime=None, dsh_home=None):
                 else:
                     target.unlink(missing_ok=True)
                 raise
+            message = 'NotifyHub 插件已安装。重启 dsh 后生效。' if enabled else 'NotifyHub 插件已安装，续聊暂未启用。'
+            if 'dsh-notifyhub-native-bridge' in deps:
+                try:
+                    _run([*plugin_command, 'remove', 'dsh-notifyhub-native-bridge'])
+                except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                    message += ' 旧续聊配置已移除，请在 dsh 插件列表卸载旧版 dsh-notifyhub-native-bridge。'
             return {'ok': True, 'mode': 'native', 'enabled': enabled, 'config_path': str(target),
                     'backup_path': str(backup), 'restart_required': True,
-                    'message': '通知与续聊插件已安装。重启 dsh 后生效。' if enabled else '通知与续聊插件已安装，续聊暂未启用。'}
+                    'message': message}
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         return {'ok': False, 'error': str(error)}
