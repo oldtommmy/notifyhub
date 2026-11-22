@@ -22,7 +22,7 @@ DEFAULT_CONFIG = {
             "base_url": "https://open.feishu.cn",
             "app_id": "",
             "app_secret": "",
-            "receive_id_type": "email",
+            "receive_id_type": "open_id",
             "receive_id": "",
             "message_type": "card",
             "at_all": False,
@@ -172,6 +172,10 @@ def load_config(path=None, expand=True):
         with target.open(encoding="utf-8") as handle:
             data = json.load(handle)
     merged = deep_merge(DEFAULT_CONFIG, data)
+    stored_app = data.get("channels", {}).get("feishu_app", {})
+    if stored_app.get("receive_id") and "receive_id_type" not in stored_app:
+        # Existing untyped recipients used the previous email default.
+        merged["channels"]["feishu_app"]["receive_id_type"] = "email"
     if not expand:
         return merged
 
@@ -190,6 +194,8 @@ def load_config(path=None, expand=True):
         feishu_app["receive_id"] = os.environ["NOTIFYHUB_FEISHU_RECEIVE_ID"]
     if os.environ.get("NOTIFYHUB_FEISHU_RECEIVE_ID_TYPE"):
         feishu_app["receive_id_type"] = os.environ["NOTIFYHUB_FEISHU_RECEIVE_ID_TYPE"]
+    elif os.environ.get("NOTIFYHUB_FEISHU_RECEIVE_ID") and "@" in feishu_app["receive_id"] and "receive_id_type" not in stored_app:
+        feishu_app["receive_id_type"] = "email"
 
     return _expand_env(merged)
 

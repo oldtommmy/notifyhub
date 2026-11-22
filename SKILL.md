@@ -25,7 +25,7 @@ Default to Feishu app-bot private messages. Preserve a working webhook or other 
 2. Open the local GUI first (`python3 "$SKILL_ROOT/scripts/notifyhub.py" gui`); keep it running while the user creates the Feishu app and returns to fill credentials. The GUI does not establish the native bridge WebSocket.
 3. Guide Feishu setup using [references/feishu-setup.md](references/feishu-setup.md). Default to importing the complete [bot-config.json](bot-config.json) in the Feishu console in one batch, as requested by the maintainer; do not make users search permissions one by one. Keep the smaller assets presets as an optional alternative only when the user requests reduced scope. The full preset includes app and user scopes; importing it does not itself initiate user OAuth.
 4. Let the user fill App ID/Secret in the local GUI or environment. Never ask them to paste App Secret into chat, print it, or put its literal value in a displayed command.
-5. Discover the recipient through the GUI or probe. Optional app-info/chat-list permissions support discovery; a verified manual recipient is also valid. Never guess an `open_id` or reuse one from another app without verifying it.
+5. Use `open_id` for new setups. Once App ID and App Secret are filled, the GUI automatically looks up the app owner when the recipient field is empty. The user can retry with 自动获取 or enter a verified recipient. Optional app-info/chat-list permissions support discovery; a verified manual recipient is also valid. Never guess an `open_id` or reuse one from another app without verifying it.
 6. Save config, test delivery, install only the requested hook/plugin, and run `doctor`. Config/hook writers back up their previous files.
 
 ```bash
@@ -72,6 +72,15 @@ Read [integrations/dsh-native-bridge/README.md](integrations/dsh-native-bridge/R
 7. Restart dsh when its current task is finished. Verify: 会话 → select/bind a session → send a small prompt → one Feishu result and the same turn in the original desktop history. Check historical restoration and paging separately; report what has actually passed.
 
 The native bridge preserves the original session's permissions, model and cwd. Approvals still require the desktop UI; do not globally disable approval to make phone interaction appear unattended. One outstanding phone request per session is currently allowed. Buttons expire after 15 minutes or a transport restart; request a new list. Unknown submission/delivery outcomes must not trigger a blind rerun. Preserve the durable ledger when diagnosing stuck requests.
+
+## Feishu commands
+
+These are messages sent to the bot in Feishu, not terminal commands. Explain the flow as **list → select → send a prompt**.
+
+- **会话** or `/sessions` lists sessions for the selected agent. **DSH会话** switches to dsh. **Codex会话** switches to Codex when the experimental Codex GUI option is enabled.
+- Click **继续此会话**, reply with the row number within five minutes, or send `/attach 2` to select row 2 of the current page.
+- **上一页** and **下一页** change pages. **状态** or `/status` shows the current binding.
+- Send ordinary text after binding. It goes to the selected agent's original conversation. Use **切回此会话** on an answer card to return to its conversation.
 
 ## Diagnostics and boundaries
 

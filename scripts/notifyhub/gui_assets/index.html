@@ -521,6 +521,9 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 let state = { config: null, dirty: false, toastTimer: null };
 let previewGoalValue = "active";
 let receiveTypeValue = "open_id";
+let receiverLookupTimer;
+let receiverEditVersion = 0;
+let receiverLookupVersion = 0;
 let dshProfile = "desktop";
 let dshNativeHydrated = false;
 const RECEIVE_TYPES = [
@@ -600,6 +603,7 @@ function renderReceiveTypes() {
     option.setAttribute("aria-selected", item.value === receiveTypeValue ? "true" : "false");
     option.innerHTML = `<strong>${esc(item.label)}</strong><small>${esc(item.hint)}</small>`;
     option.addEventListener("click", () => {
+      receiverEditVersion++;
       setReceiveType(item.value);
       toggleReceiveTypeMenu(false);
       markDirty();
@@ -627,7 +631,22 @@ function toggleReceiveTypeMenu(force) {
   trigger.setAttribute("aria-expanded", open ? "true" : "false");
 }
 
+function scheduleReceiverLookup() {
+  clearTimeout(receiverLookupTimer);
+  if (!state.config || receiveTypeValue !== "open_id" || $("receiveId").value.trim()) return;
+  const appId = $("appId").value.trim();
+  const secret = $("appSecret").value.trim();
+  if (!appId || !secret || secret.startsWith("${")) return;
+  receiverLookupTimer = setTimeout(() => discoverReceiver(true), 700);
+}
+
 async function discoverReceiver(quiet = false) {
+  clearTimeout(receiverLookupTimer);
+  if (quiet && (receiveTypeValue !== "open_id" || $("receiveId").value.trim())) return;
+  const editVersion = receiverEditVersion;
+  const lookupVersion = ++receiverLookupVersion;
+  const receiveType = receiveTypeValue;
+  const isCurrent = () => lookupVersion === receiverLookupVersion && editVersion === receiverEditVersion;
   const appId = $("appId").value.trim();
   const appSecret = $("appSecret").value.trim();
   const status = $("receiverStatus");
@@ -647,14 +666,12 @@ async function discoverReceiver(quiet = false) {
       method: "POST",
       body: JSON.stringify({ app_id: appId, app_secret: appSecret, base_url: baseUrl }),
     });
-    const candidates = data.candidates || [];
-    const candidate =
-      candidates.find((item) => item.type === "open_id") ||
-      candidates.find((item) => item.type === "email") ||
-      candidates[0];
+    if (!isCurrent()) return;
+    const candidate = (data.candidates || []).find(item => item.type === receiveType && item.value);
     if (!candidate) {
-      status.textContent = (data.warnings || []).join("；") || "未获取到接收人，请手动填写。";
-      if (!quiet) toast("未获取到接收人，请手动填写", "error");
+      status.textContent = `未找到 ${receiveType} 接收人，请手动填写或切换接收人类型。` +
+        ((data.warnings || []).length ? ` ${data.warnings.join("；")}` : "");
+      if (!quiet) toast("未找到所选类型的接收人", "error");
       return;
     }
     setReceiveType(candidate.type);
@@ -665,11 +682,17 @@ async function discoverReceiver(quiet = false) {
     markDirty();
     if (!quiet) toast("已自动获取接收人，记得保存。");
   } catch (error) {
+    if (!isCurrent()) return;
     status.textContent = error.message;
     if (!quiet) toast(error.message, "error");
   } finally {
-    button.disabled = false;
-    button.textContent = "自动获取";
+    if (lookupVersion === receiverLookupVersion) {
+      button.disabled = false;
+      button.textContent = "自动获取";
+      if (status.textContent === "正在读取应用所有者和机器人所在群…" && !isCurrent()) {
+        status.textContent = "";
+      }
+    }
   }
 }
 
@@ -681,13 +704,13 @@ function renderConfig() {
 
   $("appId").value = app.app_id || "";
   $("appSecret").value = app.app_secret || "";
-  receiveTypeValue = app.receive_id_type || "open_id";
+  receiveTypeValue = app.receive_id ? (app.receive_id_type || "open_id") : "open_id";
   $("receiveId").value = app.receive_id || "";
   renderReceiveTypes();
   setReceiveType(receiveTypeValue);
   $("receiverStatus").textContent = app.receive_id
     ? `当前接收人：${RECEIVE_TARGETS[app.receive_id_type] || app.receive_id_type} · ${app.receive_id}。点「自动获取」可重新读取。`
-    : "";
+    : "填完 App ID 和 App Secret 后，自动查找应用所有者的 open_id。";
   $("goalRounds").checked = codex.notify_goal_rounds !== false;
   $("recentPrompt").checked = codex.include_recent_prompt !== false;
   $("lastMessage").checked = codex.include_last_message !== false;
@@ -751,10 +774,7 @@ async function loadConfig() {
   const data = await api("/api/config");
   state.config = data.config;
   renderConfig();
-  const app = data.config.channels?.feishu_app || {};
-  if (app.app_id && app.app_secret && !app.receive_id) {
-    setTimeout(() => discoverReceiver(true), 400);
-  }
+  scheduleReceiverLookup();
 }
 
 async function loadStatus() {
@@ -1136,6 +1156,18 @@ function bindEvents() {
   $("themeBtn").addEventListener("click", cycleTheme);
   $("receiveTypeTrigger").addEventListener("click", () => toggleReceiveTypeMenu());
   $("discoverBtn").addEventListener("click", () => discoverReceiver(false));
+  for (const id of ["appId", "appSecret"]) {
+    for (const event of ["input", "change"]) {
+      $(id).addEventListener(event, () => {
+        receiverEditVersion++;
+        scheduleReceiverLookup();
+      });
+    }
+  }
+  $("receiveId").addEventListener("input", () => {
+    receiverEditVersion++;
+    clearTimeout(receiverLookupTimer);
+  });
   document.addEventListener("click", (event) => {
     if (!$("receiveTypeSelect").contains(event.target)) toggleReceiveTypeMenu(false);
   });
