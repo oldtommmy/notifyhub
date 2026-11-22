@@ -58,8 +58,10 @@ def status(config_file):
     except (OSError, ValueError):
         package = {}
     return {'installed': 'dsh-notifyhub-native-bridge' in package.get('dependencies', {}),
-            'enabled': bool(bridge.get('enabled')), 'allow_open_ids': bridge.get('allow_open_ids', []),
-            'card_actions': bool(bridge.get('card_actions')), 'codex_enabled': bool(bridge.get('codex_enabled')), 'config_path': str(target),
+            'enabled': bool(bridge.get('enabled')),
+            'dsh_enabled': bool(bridge.get('enabled') and bridge.get('dsh_enabled', True)),
+            'allow_open_ids': bridge.get('allow_open_ids', []),
+            'card_actions': bool(bridge.get('card_actions')), 'codex_enabled': bool(bridge.get('enabled') and bridge.get('codex_enabled')), 'config_path': str(target),
             'runtime_ready': _python(runtime_path()).is_file(),
             'restart_required': True}
 
@@ -86,7 +88,14 @@ def install(config_file, options, runtime=None, dsh_home=None):
     ids = options.get('allow_open_ids', [])
     if not isinstance(ids, list) or any(not isinstance(x, str) or not re.fullmatch(r'ou_[A-Za-z0-9]+', x) for x in ids):
         return {'ok': False, 'error': '请填写经过核实的 open_id，多个 ID 用逗号分隔。'}
-    enabled = options.get('enabled') is True
+    if 'dsh_enabled' in options:
+        dsh_enabled = options.get('dsh_enabled') is True
+        codex_enabled = options.get('codex_enabled') is True
+    else:
+        # Older clients sent enabled as the shared bridge switch.
+        dsh_enabled = options.get('enabled') is True
+        codex_enabled = dsh_enabled and options.get('codex_enabled') is True
+    enabled = dsh_enabled or codex_enabled
     cards = options.get('card_actions') is True
     if enabled and not ids:
         return {'ok': False, 'error': '启用续聊前请填写允许使用者的 open_id。'}
@@ -138,7 +147,8 @@ def install(config_file, options, runtime=None, dsh_home=None):
                 raise RuntimeError('安装期间 desktop 配置发生变化，未覆盖新配置；请刷新后重试。')
             native = load_config(str(target)) if target.exists() else source_config
             native['channels']['feishu_app'] = dict(app)
-            native.setdefault('bridge', {}).update(enabled=enabled, allow_open_ids=list(dict.fromkeys(ids)), default_agent='dsh', card_actions=cards, codex_enabled=options.get('codex_enabled') is True)
+            native.setdefault('bridge', {}).update(enabled=enabled, allow_open_ids=list(dict.fromkeys(ids)), default_agent='dsh', card_actions=cards,
+                dsh_enabled=dsh_enabled, codex_enabled=codex_enabled)
             # Keep ledgers and session bindings untouched; neither process is restarted here.
             _write(target, json.dumps(native, ensure_ascii=False, indent=2))
             try:

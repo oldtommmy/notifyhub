@@ -36,8 +36,12 @@ class NativeTransport:
         self.targets[message['message_id']] = message['chat_id']
         if self.codex.wants(message):
             self.codex.enqueue({'type': 'message', **message})
-        else:
+        elif self.codex.dsh_enabled:
             self.emit({'type': 'message', **message})
+        else:
+            self.enqueue({'type': 'reply', 'message_id': message['message_id'],
+                          'text': 'dsh 续聊未启用。发送“Codex会话”选择 Codex 对话。',
+                          'key': 'dsh-disabled'})
 
     def handle_card_action(self, data):
         from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTriggerResponse

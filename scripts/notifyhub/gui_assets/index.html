@@ -114,7 +114,7 @@
     padding: 20px; box-shadow: var(--card-inset), var(--card-shadow);
     backdrop-filter: blur(22px) saturate(1.15);
   }
-  .grid > .fold { grid-column: 1 / -1; }
+  .grid > .wide-card { grid-column: 1 / -1; }
   .grid > .card { min-width: 0; }
   .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 16px; }
   .card-head h2 { margin: 0 0 4px; font-size: 15px; letter-spacing: -.01em; }
@@ -147,7 +147,7 @@
   input:focus, select:focus {
     border-color: rgba(79, 110, 247, .55); box-shadow: 0 0 0 4px rgba(79, 110, 247, .13); background: var(--card-solid);
   }
-  .switch-list { display: flex; flex-direction: column; gap: 10px; }
+  .switch-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .switch-row {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 10px 12px; border: 1px solid var(--input-border); border-radius: 12px;
@@ -202,10 +202,6 @@
   .field-note { color: var(--muted); font-size: 11px; line-height: 1.65; }
   .field-note:empty { display: none; }
   select { min-height: 38px; cursor: pointer; }
-  .fold > summary {
-    cursor: pointer; font-size: 14px; font-weight: 650; line-height: 1.5;
-  }
-  .fold[open] > summary { margin-bottom: 14px; }
   .native-settings { display: grid; gap: 10px; margin-top: 14px; }
   .native-settings[hidden] { display: none; }
   .check { display: flex; gap: 8px; align-items: center; font-size: 13px; }
@@ -231,7 +227,7 @@
     .app { padding: 18px 14px 48px; }
     .topbar { align-items: flex-start; }
     .brand p { display: none; }
-    .field-grid { grid-template-columns: 1fr; }
+    .field-grid, .switch-list { grid-template-columns: 1fr; }
     .span-2 { grid-column: auto; }
   }
 </style>
@@ -314,14 +310,10 @@
             <span>允许续聊的 open_id</span>
             <input id="dshAllowedIds" type="text" placeholder="ou_...，多个用逗号分隔" autocomplete="off" spellcheck="false">
           </label>
-          <label class="check"><input id="dshNativeEnabled" type="checkbox"> 启用飞书续聊（已订阅接收消息）</label>
-          <label class="check"><input id="codexBridgeEnabled" type="checkbox"> 同时启用 Codex 续聊</label>
-          <details class="fold">
-            <summary>卡片按钮与配置帮助</summary>
-            <label class="check"><input id="dshCardActions" type="checkbox"> 启用会话卡片按钮（已订阅卡片回调）</label>
-            <p class="hint">先保存飞书凭据、<a href="https://github.com/oldtommmy/notifyhub/blob/main/bot-config.json" target="_blank" rel="noopener noreferrer">导入权限 JSON</a>，再订阅接收消息事件。按钮另需卡片回调。续聊时保持 dsh App 运行。</p>
-            <a href="https://github.com/oldtommmy/notifyhub/blob/main/references/feishu-setup.md" target="_blank" rel="noopener noreferrer">飞书配置步骤</a>
-          </details>
+          <label class="check"><input id="dshNativeEnabled" type="checkbox"> dsh 续聊</label>
+          <label class="check"><input id="codexBridgeEnabled" type="checkbox"> Codex 续聊</label>
+          <label class="check"><input id="dshCardActions" type="checkbox"> 启用会话卡片按钮</label>
+          <p class="hint">两种续聊可单独启用。请先<a href="https://github.com/oldtommmy/notifyhub/blob/main/bot-config.json" target="_blank" rel="noopener noreferrer">导入权限 JSON</a>并订阅接收消息事件。按钮另需订阅卡片回调。<a href="https://github.com/oldtommmy/notifyhub/blob/main/references/feishu-setup.md" target="_blank" rel="noopener noreferrer">配置步骤</a></p>
         </div>
         <div class="row-actions">
           <button class="btn" id="installContinuationBtn">安装并应用续聊</button>
@@ -340,6 +332,14 @@
           <button class="btn" id="installBtn">安装 Codex 通知</button>
         </div>
         <div class="hint" id="hooksHint">安装后在 Codex 里运行 <code>/hooks</code> 信任 notifyhub。</div>
+        <div class="quota-row">
+          <div class="quota-main">
+            <span class="muted">Codex 剩余额度</span>
+            <strong id="quotaLine">加载中…</strong>
+            <span class="quota-age" id="quotaAge"></span>
+          </div>
+          <button class="btn btn-ghost btn-small" id="quotaRefresh">刷新</button>
+        </div>
       </div>
 
       <div class="card">
@@ -363,23 +363,15 @@
         </div>
         <div class="hint" id="dshHint">安装后重启 <code>dsh web</code> 生效。</div>
       </div>
-      <details class="card fold">
-        <summary>通知选项与额度</summary>
+      <div class="card wide-card">
+        <div class="card-head"><h2>通知选项</h2></div>
         <div class="switch-list">
           <div class="switch-row"><span class="label">Goal 每轮都通知</span><label class="switch"><input type="checkbox" id="goalRounds"><i></i></label></div>
           <div class="switch-row"><span class="label">附带最近提问</span><label class="switch"><input type="checkbox" id="recentPrompt"><i></i></label></div>
           <div class="switch-row"><span class="label">附带最后一条消息</span><label class="switch"><input type="checkbox" id="lastMessage"><i></i></label></div>
           <div class="switch-row"><span class="label">显示剩余额度</span><label class="switch"><input type="checkbox" id="showQuota"><i></i></label></div>
         </div>
-        <div class="quota-row">
-          <div class="quota-main">
-            <span class="muted">当前剩余额度</span>
-            <strong id="quotaLine">加载中…</strong>
-            <span class="quota-age" id="quotaAge"></span>
-          </div>
-          <button class="btn btn-ghost btn-small" id="quotaRefresh">刷新</button>
-        </div>
-      </details>
+      </div>
 
   </main>
 
@@ -626,18 +618,20 @@ async function loadStatus() {
   if (!dshNativeHydrated) {
     dshProfile = dsh.desktop_app || desktopInstalled || native.installed ? "desktop" : "web";
     $("dshAllowedIds").value = (native.allow_open_ids || []).join(", ");
-    $("dshNativeEnabled").checked = native.enabled === true;
+    $("dshNativeEnabled").checked = native.dsh_enabled === true;
     $("dshCardActions").checked = native.card_actions === true;
     $("codexBridgeEnabled").checked = native.codex_enabled === true;
     dshNativeHydrated = true;
   }
   selectDshProfile(dshProfile);
-  updateContinuationControls();
   setPill("continuationPill",
     native.enabled && native.installed ? "已配置" : native.installed ? "已安装 · 未启用" : "未安装",
     native.enabled && native.installed ? "ok" : "off");
   $("continuationHint").textContent = native.enabled && native.installed
-    ? (native.codex_enabled ? "重启 dsh 后，在飞书发“Codex会话”或“DSH会话”。" : "重启 dsh 后，在飞书发“会话”。")
+    ? `保持 dsh App 运行。在飞书发${[
+        native.dsh_enabled ? "“DSH会话”" : "",
+        native.codex_enabled ? "“Codex会话”" : "",
+      ].filter(Boolean).join("或")}。`
     : "续聊需要 dsh 桌面 App 保持运行。";
 
   $("dshHint").textContent = dsh.dsh_found
@@ -704,10 +698,6 @@ function selectDshProfile(value) {
   $("installDshBtn").textContent = value === "desktop" ? "安装桌面版通知" : "安装 Web 通知";
 }
 
-function updateContinuationControls() {
-  $("codexBridgeEnabled").disabled = !$("dshNativeEnabled").checked;
-}
-
 async function installDshFeature(continuation) {
   const button = $(continuation ? "installContinuationBtn" : "installDshBtn");
   const label = button.textContent;
@@ -715,7 +705,7 @@ async function installDshFeature(continuation) {
   const body = { profile, mode: continuation ? "native" : "notify" };
   if (continuation) {
     Object.assign(body, {
-      enabled: $("dshNativeEnabled").checked,
+      dsh_enabled: $("dshNativeEnabled").checked,
       codex_enabled: $("codexBridgeEnabled").checked,
       card_actions: $("dshCardActions").checked,
       allow_open_ids: $("dshAllowedIds").value.split(/[,，\s]+/).filter(Boolean),
@@ -755,7 +745,6 @@ function bindEvents() {
   $("installBtn").addEventListener("click", installHooks);
   $("installDshBtn").addEventListener("click", () => installDshFeature(false));
   $("installContinuationBtn").addEventListener("click", () => installDshFeature(true));
-  $("dshNativeEnabled").addEventListener("change", updateContinuationControls);
   $("dshProfile").addEventListener("change", () => selectDshProfile($("dshProfile").value));
   $("quotaRefresh").addEventListener("click", () => loadQuota(true));
   $("themeBtn").addEventListener("click", cycleTheme);

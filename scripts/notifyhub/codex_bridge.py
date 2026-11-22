@@ -12,7 +12,9 @@ from .codex_rpc import CodexRpc, CodexRpcRejected
 
 class CodexBridge:
     def __init__(self, config, reply, logger, state_path=None, rpc_factory=CodexRpc):
-        self.enabled = bool(config.get('bridge', {}).get('codex_enabled', False))
+        bridge = config.get('bridge') or {}
+        self.enabled = bool(bridge.get('codex_enabled', False))
+        self.dsh_enabled = bool(bridge.get('dsh_enabled', True))
         self.reply, self.logger = reply, logger
         self.path = Path(state_path or '~/.local/state/notifyhub/codex-bridge.json').expanduser()
         self.data = {'bindings': {}, 'requests': {}}
@@ -48,9 +50,12 @@ class CodexBridge:
             message.update(kind='attach_list', payload='')
         elif message.get('kind') == 'task' and message.get('payload', [''])[0] == 'codex':
             engine = 'codex'
-        if engine in ('codex', 'dsh') and self.enabled and message.get('chat_type') == 'p2p':
+        if (engine == 'codex' or engine == 'dsh' and self.dsh_enabled) and self.enabled and message.get('chat_type') == 'p2p':
             self.routes[message['chat_id']] = engine
-        return engine == 'codex' or (engine != 'dsh' and self.routes.get(message.get('chat_id')) == 'codex')
+        if engine:
+            return engine == 'codex'
+        default_engine = 'dsh' if self.dsh_enabled else 'codex'
+        return self.routes.get(message.get('chat_id'), default_engine) == 'codex'
 
     def enqueue(self, frame):
         if self.worker is None:

@@ -61,6 +61,13 @@ class CodexBridgeTests(unittest.TestCase):
         self.assertFalse(self.bridge.wants(self.frame('switch', payload=['dsh', 'DSH会话'])))
         self.assertFalse(self.bridge.wants(self.frame('next')))
 
+    def test_codex_only_routes_plain_input_and_rejects_explicit_dsh(self):
+        self.config['bridge']['dsh_enabled'] = False
+        bridge = self.make_bridge()
+        self.assertTrue(bridge.wants(self.frame('plain')))
+        self.assertFalse(bridge.wants(self.frame('switch', payload=['dsh', 'DSH会话'])))
+        self.assertTrue(bridge.wants(self.frame('next')))
+
     def test_queue_once_and_return_only_matching_final_answer(self):
         self.bridge.handle(self.frame('phone'))
         self.bridge.handle(self.frame('phone'))

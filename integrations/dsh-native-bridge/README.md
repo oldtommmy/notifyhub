@@ -16,7 +16,7 @@ in the Feishu console. Enter verified allowed open_ids and explicitly enable
 continuation after subscribing to messages; enable buttons after adding card
 callbacks. Click install/apply, then restart dsh when its current work finishes.
 The GUI prepares the stable runtime and Python dependency and installs both
-plugins. Leaving the enabled checkbox off installs without enabling execution.
+plugins. Leaving both engine checkboxes unchecked installs without enabling continuation.
 
 ### Manual installation
 

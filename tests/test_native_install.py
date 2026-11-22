@@ -85,6 +85,15 @@ class NativeGuiInstallTests(unittest.TestCase):
         self.assertEqual(self.profile.read_text().count('- id: notifyhub-native-bridge'), 1)
         self.assertTrue(Path(result['backup_path'], 'native-config.json').exists())
 
+    def test_codex_can_enable_shared_transport_without_dsh(self):
+        result = self.install(dsh_enabled=False, codex_enabled=True, allow_open_ids=['ou_owner'])
+        self.assertTrue(result['ok'], result)
+        bridge = load_config(native_install.native_config_path(self.config))['bridge']
+        self.assertTrue(bridge['enabled'])
+        self.assertFalse(bridge['dsh_enabled'])
+        self.assertTrue(bridge['codex_enabled'])
+        self.assertIn('enabled: true', self.profile.read_text())
+
     def test_package_install_failure_does_not_enable_or_replace_profile(self):
         old = self.profile.read_bytes()
         native_install._run.side_effect = RuntimeError('npm failed')
