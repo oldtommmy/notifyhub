@@ -20,11 +20,15 @@ class CodexRpcRejected(CodexRpcError):
 
 class CodexRpc:
     def __init__(self, command=None, timeout=15):
+        self.env = None
         binary = os.environ.get('NOTIFYHUB_CODEX_BIN') or shutil.which('codex')
-        if not binary and sys.platform == 'darwin':
+        if not command and not binary and sys.platform == 'darwin':
             for path in map(Path, ('/opt/homebrew/bin/codex', '/usr/local/bin/codex')):
                 if path.is_file() and os.access(path, os.X_OK):
                     binary = str(path)
+                    # The npm launcher resolves Node through the child process's PATH.
+                    self.env = os.environ.copy()
+                    self.env['PATH'] = os.pathsep.join((str(path.parent), os.environ.get('PATH', os.defpath)))
                     break
         if not command and not binary:
             raise CodexRpcError('找不到 Codex CLI，请先安装并登录 Codex。')
@@ -41,7 +45,7 @@ class CodexRpc:
                 raise CodexRpcError('Codex 连接已断开，请重启桥接；提交结果不明的消息不会重跑。')
             return
         self.process = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=subprocess.DEVNULL, text=True, bufsize=1)
+                                        stderr=subprocess.DEVNULL, text=True, bufsize=1, env=self.env)
         threading.Thread(target=self._read, daemon=True).start()
         self.call('initialize', {'clientInfo': {'name': 'notifyhub_feishu', 'title': 'notifyhub', 'version': '0.9.2'},
                                  'capabilities': {'experimentalApi': True}})
