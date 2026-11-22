@@ -217,6 +217,19 @@ App Secret 由我在本机 GUI 或环境变量填写，不要让我贴到聊天�
 
 完成通知、原会话续写和按钮切换已做过本机真机验证；历史会话恢复与分页已有自动化测试，完整真机验收仍在推进。运行接口核对版本为 dsh **0.2.2-rc.5**。
 
+## 手机续聊 Codex（实验性）
+
+此功能在 `feat/codex-continuation` 分支。保持 dsh 桌面 App 运行以承载现有飞书长连接，并在 Codex 桌面端打开要继续的本地会话。
+
+1. 在 notifyhub GUI 选择 **完成通知＋dsh 续聊**，配置并启用续聊，同时勾选 **Codex 原会话续聊**。应用设置后重启 dsh。
+2. 与机器人私聊，发 **Codex会话**，点选或回复序号绑定本地会话。
+3. 直接发送文字。机器人确认入队后，由 Codex 原会话处理。审批仍在 Codex 界面完成。
+4. 发 **DSH会话** 可切回 dsh。
+
+首版通过 Codex 的实验性 App Server 队列协议提交输入，使用消息 ID 匹配结果。需要本机 CLI 支持队列及轮次读取接口；已核对的 CLI 版本为 0.155.1。每个会话允许一条未完成的手机请求。重启桥接后，请重新选择 Codex 入口，并在 Codex 中查看重启前仍在运行的请求。若同时安装了普通 Codex 完成通知 hook，可能收到原有的完成通知和续聊结果各一条。
+
+相关接口见 [OpenAI CLI 参考](https://learn.chatgpt.com/docs/cli/reference)和 [Codex App Server](https://learn.chatgpt.com/docs/app-server)。
+
 <a id="faq"></a>
 ## 常见问题
 

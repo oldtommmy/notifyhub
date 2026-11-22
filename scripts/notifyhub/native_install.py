@@ -59,7 +59,7 @@ def status(config_file):
         package = {}
     return {'installed': 'dsh-notifyhub-native-bridge' in package.get('dependencies', {}),
             'enabled': bool(bridge.get('enabled')), 'allow_open_ids': bridge.get('allow_open_ids', []),
-            'card_actions': bool(bridge.get('card_actions')), 'config_path': str(target),
+            'card_actions': bool(bridge.get('card_actions')), 'codex_enabled': bool(bridge.get('codex_enabled')), 'config_path': str(target),
             'runtime_ready': _python(runtime_path()).is_file(),
             'restart_required': True}
 
@@ -138,7 +138,7 @@ def install(config_file, options, runtime=None, dsh_home=None):
                 raise RuntimeError('安装期间 desktop 配置发生变化，未覆盖新配置；请刷新后重试。')
             native = load_config(str(target)) if target.exists() else source_config
             native['channels']['feishu_app'] = dict(app)
-            native.setdefault('bridge', {}).update(enabled=enabled, allow_open_ids=list(dict.fromkeys(ids)), default_agent='dsh', card_actions=cards)
+            native.setdefault('bridge', {}).update(enabled=enabled, allow_open_ids=list(dict.fromkeys(ids)), default_agent='dsh', card_actions=cards, codex_enabled=options.get('codex_enabled') is True)
             # Keep ledgers and session bindings untouched; neither process is restarted here.
             _write(target, json.dumps(native, ensure_ascii=False, indent=2))
             try:

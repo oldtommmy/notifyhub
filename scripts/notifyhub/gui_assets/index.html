@@ -470,6 +470,7 @@
           </label>
           <p class="hint">先保存上方的飞书凭据，并导入 <a href="https://github.com/oldtommmy/notifyhub/blob/main/bot-config.json" target="_blank" rel="noopener noreferrer">bot-config.json 完整权限预设</a>。仅填写已核实的用户 ID；留空时只安装，不启用。</p>
           <label><input id="dshNativeEnabled" type="checkbox"> 已配置接收消息事件，启用续聊</label><br>
+          <label><input id="codexBridgeEnabled" type="checkbox"> 同时启用 Codex 原会话续聊（实验性）</label><br>
           <label><input id="dshCardActions" type="checkbox"> 已配置卡片回调，启用会话按钮</label>
           <p class="hint">事件配置：长连接＋im.message.receive_v1。回调配置：长连接＋card.action.trigger。dsh App 需保持运行；审批仍在桌面处理。</p>
         </div>
@@ -780,6 +781,7 @@ async function loadStatus() {
     $("dshAllowedIds").value = (native.allow_open_ids || []).join(", ");
     $("dshNativeEnabled").checked = native.enabled === true;
     $("dshCardActions").checked = native.card_actions === true;
+    $("codexBridgeEnabled").checked = native.codex_enabled === true;
     if (native.installed) $("dshMode").value = "native";
     dshNativeHydrated = true;
   }
@@ -1086,7 +1088,7 @@ async function installDsh() {
     const data = await api("/api/hooks/install-dsh", {
       method: "POST",
       body: JSON.stringify({ profile: dshProfile, mode: $("dshMode").value,
-        enabled: $("dshNativeEnabled").checked, card_actions: $("dshCardActions").checked,
+        enabled: $("dshNativeEnabled").checked, codex_enabled: $("codexBridgeEnabled").checked, card_actions: $("dshCardActions").checked,
         allow_open_ids: $("dshAllowedIds").value.split(/[,，\s]+/).filter(Boolean) }),
     });
     const label = dshProfile === "desktop" ? "桌面版" : "Web";

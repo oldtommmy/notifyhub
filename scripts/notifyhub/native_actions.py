@@ -10,8 +10,8 @@ class CardActions:
     def __init__(self):
         self.secret = secrets.token_bytes(32)
 
-    def sign(self, chat_id, kind, payload=''):
-        value = {'chat': chat_id, 'kind': kind, 'payload': payload,
+    def sign(self, chat_id, kind, payload='', engine='dsh'):
+        value = {'chat': chat_id, 'kind': kind, 'payload': payload, 'engine': engine,
                  'expires': int(time.time()) + 900, 'nonce': secrets.token_hex(12)}
         value['signature'] = self._digest(value)
         return value
@@ -23,7 +23,7 @@ class CardActions:
     def verify(self, value, chat_id):
         if not isinstance(value, dict) or value.get('chat') != chat_id:
             return False
-        if value.get('kind') not in ('attach', 'attach_list', 'status'):
+        if value.get('engine', 'dsh') not in ('dsh', 'codex') or value.get('kind') not in ('attach', 'attach_list', 'status'):
             return False
         try:
             return (int(value['expires']) >= time.time()
