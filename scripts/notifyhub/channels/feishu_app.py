@@ -117,3 +117,72 @@ def send(notification, config, logger=None):
     except TransportError as error:
         # Token acquisition errors happen before this block and are safe to retry.
         raise AmbiguousSendError(str(error)) from error
+
+
+def _submit_json(url, payload, headers, timeout):
+    try:
+        return _post_json(url, payload, headers, timeout)
+    except TransportError as error:
+        raise AmbiguousSendError(str(error)) from error
+
+
+# --------------------------------------------------------------- bridge 回复
+
+REPLY_PATH = "/open-apis/im/v1/messages/{message_id}/reply"
+
+
+def _token_for(config):
+    timeout = float(config.get("timeout_seconds", 5))
+    base_url = config.get("base_url", "https://open.feishu.cn")
+    token = get_tenant_token(
+        config.get("app_id", ""),
+        config.get("app_secret", ""),
+        timeout,
+        base_url,
+    )
+    return token, base_url.rstrip("/"), timeout
+
+
+def reply_text(message_id, text, config, dedupe_key=None):
+    """Reply to a specific Feishu message (keeps the phone-side thread)."""
+    if not message_id:
+        raise FeishuAppError("message_id is required to reply")
+    token, base_url, timeout = _token_for(config)
+    payload = {"msg_type": "text", "content": json.dumps({"text": str(text)}, ensure_ascii=False)}
+    if dedupe_key is not None:
+        payload["uuid"] = str(uuid.uuid5(uuid.NAMESPACE_URL, f"notifyhub-native:{message_id}:{dedupe_key}"))
+    return _submit_json(
+        base_url + REPLY_PATH.format(message_id=urllib.parse.quote(str(message_id))),
+        payload,
+        {"Authorization": f"Bearer {token}"},
+        timeout,
+    )
+
+
+def send_card_to_chat(chat_id, card, config):
+    """Send a card into a chat_id (used for streaming agent output)."""
+    if not chat_id:
+        raise FeishuAppError("chat_id is required")
+    token, base_url, timeout = _token_for(config)
+    url = f"{base_url}{MESSAGE_PATH}?receive_id_type=chat_id"
+    return _submit_json(
+        url,
+        {
+            "receive_id": chat_id,
+            "msg_type": "interactive",
+            "content": json.dumps(card, ensure_ascii=False),
+        },
+        {"Authorization": f"Bearer {token}"},
+        timeout,
+    )
+
+
+def reply_card(message_id, card, config, dedupe_key='reply'):
+    """Reply with a rich card using the same request identity as text replies."""
+    if not message_id:
+        raise FeishuAppError("message_id is required to reply")
+    token, base_url, timeout = _token_for(config)
+    payload = {"msg_type": "interactive", "content": json.dumps(card, ensure_ascii=False),
+               "uuid": str(uuid.uuid5(uuid.NAMESPACE_URL, f"notifyhub-native:{message_id}:{dedupe_key}"))}
+    return _submit_json(base_url + REPLY_PATH.format(message_id=urllib.parse.quote(str(message_id))),
+                      payload, {"Authorization": f"Bearer {token}"}, timeout)

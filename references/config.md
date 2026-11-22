@@ -186,7 +186,80 @@ Project matching uses glob patterns against the full `cwd` and the project basen
 - State and dedupe: `~/.local/state/notifyhub/state.json`
 - Log: `~/.local/state/notifyhub/notifyhub.log`
 - Quota cache: `~/.local/state/notifyhub/quota.json`
+- Outbox (failed deliveries): `~/.local/state/notifyhub/outbox.json`
 - Codex hooks: `~/.codex/hooks.json`
+
+## Outbox
+
+When every enabled channel fails, the notification is stored so it can be
+replayed instead of being lost.
+
+```json
+{
+  "outbox": {
+    "enabled": true,
+    "path": "~/.local/state/notifyhub/outbox.json",
+    "max_items": 200,
+    "max_age_hours": 72,
+    "max_attempts": 8
+  }
+}
+```
+
+- `enabled` — `false` disables persistence entirely; failures are only logged.
+- `max_items` — newest N entries kept; older ones are dropped with a warning.
+- `max_age_hours` — entries older than this are pruned on the next write.
+- `max_attempts` — after this many transient failures the entry is marked dead.
+
+Replay happens in three ways: `notifyhub flush`, a successful hook run (drains up
+to 3 entries), and `flush --status` to inspect. Entries are deduplicated by
+`dedupe_key`, so replay never double-sends a turn.
+
+Permanent errors are never retried: `99991663` (bad credentials), `99991672`
+(missing scope), `99991661`, `230001`, `230002`, `230006`, plus configuration
+errors such as a missing `receive_id`. Fix the cause, then use
+`flush --retry-dead`.
+
+## Bridge (remote continue)
+
+See [bridge.md](bridge.md) for the full guide. Summary of the `bridge` block:
+
+```json
+{
+  "bridge": {
+    "enabled": false,
+    "allow_open_ids": [],
+    "default_agent": "dsh",
+    "workspace": "~",
+    "approval_policy": "never",
+    "permission_mode": "workspace-write",
+    "timeout_seconds": 1800,
+    "max_message_chars": 3000,
+    "reject_when_busy": true,
+    "sessions_path": "~/.local/state/notifyhub/bridge_sessions.json",
+    "reply": {"ack": false, "on_finish": true},
+    "prefixes": {"dsh": "", "codex": ""}
+  }
+}
+```
+
+- `enabled` — off by default; `bridge start` also refuses unless `--force`.
+- `allow_open_ids` — **deny by default**. Empty denies everyone.
+- `default_agent` — `dsh` or `codex`; used for messages with no `@agent` prefix.
+- `prefixes` — optional custom prefixes per agent, e.g. `"!": "dsh"`.
+- `workspace` — the agent's cwd. Point it at a dedicated directory.
+- `approval_policy` / `permission_mode` — unattended runs cannot prompt, so
+  `never` plus `workspace-write` keeps the blast radius inside `workspace`.
+- `reply.ack` — send the "收到，已交给 X 处理" line before the run starts.
+  **Off by default**: a bare message already answers with a result card, so the
+  ack only doubles the traffic. Turn it on if you want confirmation that the
+  message was picked up (useful when a run takes minutes).
+  `reply.on_finish` sends the result card. Commands (`/attach`, `/topic`,
+  `/new`, `/handoff`) always reply regardless of these flags — there is no
+  result card that would tell you whether they worked.
+
+The bridge reuses `channels.feishu_app` (app_id / app_secret / base_url) for both
+the long connection and the replies.
 
 ## Environment variables
 

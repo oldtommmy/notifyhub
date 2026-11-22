@@ -1,108 +1,121 @@
-# Feishu setup
+# 飞书机器人配置
 
-## 1. Create a self-built app
+[← 返回 README](../README.md)
 
-1. Open the Feishu Open Platform and create a **self-built app**.
-2. Enable **Bot** capability.
-3. Add the permission `im:message:send_as_bot`.
-   - If you need to read the app owner's identity, `application:application:readonly` is also useful.
-4. Publish the app to the tenant. A tenant admin may need to approve it.
-5. Add the bot to the user's Feishu contacts, or have the user start a chat with it.
+先选使用方式，再申请相应权限：
 
-No user OAuth flow is required. `notifyhub` uses the app's `tenant_access_token`.
-
-## 2. Credentials
-
-You need:
-
-- `app_id` — starts with `cli_`.
-- `app_secret` — treat it as a password.
-
-Keep the secret out of chat and shell history:
-
-```bash
-export NOTIFYHUB_FEISHU_APP_SECRET='...'
-```
-
-The config file is written with mode `600`.
-
-## 3. Receive targets
-
-`receive_id_type` can be:
-
-| Type | Value | Notes |
+| 使用方式 | 权限导入文件 | 额外配置 |
 |---|---|---|
-| `open_id` | `ou_...` | Recommended. Stable per app/user. |
-| `chat_id` | `oc_...` | A group chat that contains the bot. |
-| `email` | user's tenant email | May fail if the address is not a Feishu tenant user. |
-| `user_id` | tenant user id | Depends on tenant configuration. |
-| `union_id` | `on_...` | Usually not needed. |
+| 仅接收完成通知 | [feishu-notify-scopes.json](../assets/feishu-notify-scopes.json) | 开启机器人并发布应用 |
+| 完成通知＋手机续聊 | [feishu-native-scopes.json](../assets/feishu-native-scopes.json) | 消息事件；使用按钮时增加卡片回调 |
 
-### Find the owner open_id
+## 1. 创建企业自建应用
 
-If the user only provides `app_id` and `app_secret`, try:
+1. 打开[飞书开发者后台](https://open.feishu.cn/app)，创建企业自建应用。
+2. 在应用能力中添加 **机器人**。
+3. 在“凭证与基础信息”查看 **App ID** 和 **App Secret**。
+4. 将 App Secret 填入 notifyhub 的本地 GUI 或环境变量；不要提交到 Git 或贴到聊天里。
 
-```bash
-python3 "$SKILL_ROOT/scripts/feishu_probe.py" --app-id cli_xxxxxxxx --owner
-```
+notifyhub 使用应用的 `tenant_access_token`，当前通知和续聊流程不需要用户 OAuth 授权。
 
-This calls the app-info endpoint and prints `data.app.owner.owner_id`. It does not send a message. It requires `application:application:readonly`; if permission is missing, use one of the alternatives below.
+## 2. 导入权限
 
-### GUI auto-discovery
+进入应用的 **权限管理 → 批量导入/导出权限 → 导入**，复制上表对应 JSON 的完整内容，检查应用身份权限清单，再申请开通。
 
-The GUI does this for the user: fill App ID and App Secret, then click 「自动获取」. It uses the same app-info endpoint, prefers the owner `open_id`, then the owner email, then a bot chat from `im/v1/chats` (requires `im:chat:readonly`). The receiver-type menu explains where each type sends:
+飞书会校验权限是否存在、是否适用于该应用；需要审核或配置数据范围的权限，按后台提示完成。官方步骤见[批量导入导出 API 权限](https://open.feishu.cn/document/server-docs/application-scope/introduction)。
 
-- `open_id` — the app owner, i.e. you by default.
-- `email` — the tenant user with that email.
-- `chat_id` — a group chat that contains the bot.
-- `user_id` / `union_id` — tenant / cross-app user ids; rarely needed.
+### 本项目的权限范围
 
-If discovery fails, the fields remain editable for a manual fallback.
-
-### Alternatives
-
-- Feishu developer console → app → member/owner info.
-- Feishu admin console → user profile → open_id.
-- Add the bot to a small group, then use the group `chat_id` (`oc_...`).
-- Send the bot a direct message, then resolve the p2p `chat_id` with the messaging API.
-
-Do not guess an open_id. An invalid target returns code `230001`.
-
-## 4. Send a test
-
-```bash
-python3 "$SKILL_ROOT/scripts/feishu_probe.py" \
-  --app-id cli_xxxxxxxx \
-  --send-to ou_xxxxxxxx \
-  --receive-id-type open_id
-```
-
-Expected output:
-
-```text
-sent: message_id=om_... chat_id=oc_...
-```
-
-If the user receives it, configure notifyhub:
-
-```bash
-python3 "$SKILL_ROOT/scripts/setup_config.py" \
-  --app-id cli_xxxxxxxx \
-  --app-secret "$NOTIFYHUB_FEISHU_APP_SECRET" \
-  --receive-id ou_xxxxxxxx \
-  --receive-id-type open_id
-```
-
-## 5. Common errors
-
-| Code | Meaning | Fix |
+| 应用身份权限 | 用途 | 何时需要 |
 |---|---|---|
-| `99991672` | Missing permission | Add `im:message:send_as_bot`, republish the app. |
-| `230001` | Invalid receive_id | Use a valid `open_id` or `chat_id`. |
-| `99991663` | Invalid app_id/app_secret | Recheck credentials; do not reuse a custom-bot signing secret. |
-| `99991661` | Token/request problem | Retry; confirm the tenant token endpoint is reachable. |
-| `10003` / HTTP 400 | Invalid parameter | Check `receive_id_type`, JSON content, and `msg_type`. |
-| App not visible | Not published / not approved | Publish the app and ask an admin to approve it. |
-| Bot cannot DM | Bot capability disabled | Enable Bot capability and republish. |
+| `im:message:send_as_bot` | 以应用机器人身份发送通知和回复 | 两条路线都需要 |
+| `im:message.p2p_msg:readonly` | 读取用户发给机器人的单聊消息 | 手机续聊 |
+| `application:application:self_manage` | 应用自身信息访问；用于自动查找接收人的可选配置 | 使用自动获取接收人时按接口和后台要求申请 |
+| `im:chat:read` | 读取机器人所在的群列表，作为接收人发现的可选回退 | 需要群列表发现时 |
 
-The app-secret used for the Feishu **app bot** is not the same as the signing secret of a **custom bot webhook**. Keep them separate.
+两份精简 JSON 只包含必需的应用身份消息权限，`user` 列表为空。可选的应用信息和群列表权限在后台按需添加；手动填写已核实的接收人时，可以跳过这些自动发现功能。
+
+### 关于仓库里的 `bot-config.json`
+
+[`bot-config.json`](../bot-config.json) 是完整权限导出，包含 **35 项应用身份权限、221 项用户身份权限**，覆盖文档、日历、邮箱等额外能力。它作为现有应用配置参考保留，**不是 notifyhub 的最小安装清单**。
+
+新建专用于 notifyhub 的应用时，优先使用本页链接的精简 JSON。导入精简文件只会增加申请权限，不会自动撤销应用之前已经开通的权限。
+
+> **权限、事件、回调是三个独立配置。** 导入 JSON 后，续聊还需要下面的消息事件；卡片按钮还需要卡片回调。
+
+## 3. 发布并让自己的账号可用
+
+确认机器人能力已开启，按后台要求配置应用可用范围、创建版本并发布。需要企业管理员审核时，等待审核通过。
+
+在飞书中找到该机器人并打开私聊。只接收完成通知的用户，到这里即可继续配置 notifyhub，不需要订阅消息事件或卡片回调。
+
+<a id="receiver"></a>
+## 4. 配置接收人并测试通知
+
+```bash
+python3 scripts/notifyhub.py gui
+```
+
+填写 App ID 和 App Secret，点击“自动获取”。默认优先查找应用所有者 `open_id`，也可能提供所有者邮箱或机器人所在群作为候选。自动发现失败时，检查接口所需权限，或填写手动核实过的接收人。
+
+| 接收人类型 | 示例格式 | 发送目标 |
+|---|---|---|
+| `open_id` | `ou_…` | 当前应用下的某个用户，个人通知优先使用 |
+| `chat_id` | `oc_…` | 机器人所在聊天，常用于群聊 |
+| `email` | 租户用户邮箱 | 对应飞书租户用户，需能被应用解析 |
+
+`open_id` 与应用有关，不能随意复用其他应用下的值。不要把 `ou_…` 配成 `chat_id`。获取失败时先核对 ID 来源，不要猜测。
+
+保存后发测试卡片，也可以在命令行执行：
+
+```bash
+python3 scripts/notifyhub.py test --channel feishu_app
+python3 scripts/notifyhub.py doctor
+```
+
+确认成功后，回到 [README](../README.md#quick-start) 安装对应 agent 的通知 hook 或插件。
+
+## 5. 续聊：订阅单聊消息
+
+这部分用于 dsh 原生续聊插件（实验性，随 `main` 提供）。配置长连接前，先按[原生插件说明](../integrations/dsh-native-bridge/README.md#installation)准备本地运行环境。飞书后台如提示需要先建立连接，启动 dsh 中已配置的原生插件后再保存。
+
+在应用后台的 **事件与回调 → 事件配置**：
+
+1. 订阅方式选择 **使用长连接接收事件**。
+2. 添加 **接收消息**：`im.message.receive_v1`。
+3. 确认应用身份权限 `im:message.p2p_msg:readonly` 已开通。
+4. 保存，并按后台提示完成发布或审核。
+
+长连接由本机主动连接飞书。机器需要联网；原生续聊还要求 dsh App 持续运行、Mac 保持唤醒。
+
+## 6. 按钮：配置卡片回调
+
+在 **事件与回调 → 回调配置** 中单独设置：
+
+1. 订阅方式选择 **使用长连接接收回调**。
+2. 添加 **卡片回传交互**：`card.action.trigger`。
+3. 保存，并按后台提示完成发布或审核。
+4. 在原生续聊使用的独立配置中设置 `bridge.card_actions=true`，重启 dsh 加载配置。
+
+注意选择新版 `card.action.trigger`，而非旧版 `card.action.trigger_v1`。官方说明见[接收并处理回调](https://open.feishu.cn/document/event-subscription-guide/callback-subscription/receive-and-handle-callbacks)。
+
+原生插件的按钮默认关闭，未订阅回调时继续使用回复序号选择会话。启用后可点击“继续此会话”“刷新列表”“当前会话”；结果卡片还能“切回此会话”。
+
+## 7. 检查整条链路
+
+按顺序验证，便于定位问题：
+
+- **通知**：发送测试卡片 → 飞书私聊收到卡片。
+- **接收消息**：在飞书发“会话” → 收到会话列表。
+- **按钮**：点“继续此会话” → 收到带会话名的切换成功卡片。
+- **续聊**：发送一条简单问题 → 飞书收到回答，桌面原会话也出现本轮消息。
+
+| 问题 | 常见检查项 |
+|---|---|
+| `99991672` / 缺少权限 | 实际调用接口所需的应用身份权限是否已生效 |
+| `230001` / 接收人无效 | ID 类型、值及其所属应用是否匹配 |
+| 能发通知，不能收消息 | 消息读取权限、消息事件订阅、原生插件及允许列表 |
+| 点击按钮超时或无响应 | 卡片回调是否单独添加，订阅方式是否为长连接 |
+| 旧按钮提示失效 | 发“会话”获取新卡片；按钮在 15 分钟后或进程重启后失效 |
+
+日志及其他排障见 [troubleshooting.md](troubleshooting.md)。

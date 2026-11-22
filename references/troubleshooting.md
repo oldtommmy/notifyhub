@@ -37,14 +37,33 @@
 
 ## Feishu send fails
 
+A failure on **every** enabled channel now lands in the outbox rather than being
+dropped. Check it first:
+
+```bash
+python3 "$SKILL_ROOT/scripts/notifyhub.py" flush --status
+```
+
+Then retry once the network is back:
+
+```bash
+python3 "$SKILL_ROOT/scripts/notifyhub.py" flush
+```
+
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `feishu.webhook_url is not configured` | Using the custom-bot channel without a URL | Use `feishu_app` or fill the webhook. |
-| `code=99991672` | Missing app permission | Add `im:message:send_as_bot`, republish. |
+| `feishu.webhook_url is not configured` | Custom-bot channel enabled without a URL | Disable `channels.feishu.enabled` or fill the webhook. As of 0.2.0 this logs one WARNING per send, not an ERROR. |
+| `code=99991672` | Missing app permission | Add `im:message:send_as_bot`, republish. Marked dead — fix, then `flush --retry-dead`. |
 | `code=230001` | Invalid receive_id | Use a valid `open_id` or `chat_id`; email may not resolve. |
 | `code=99991663` | Wrong app_id/app_secret | Recheck; do not use a custom-bot signing secret. |
+| `code=99991661` | `tenant_access_token` invalid | Confirm the app is published and not disabled. |
 | HTTP 400 | Bad JSON or parameter | Check `receive_id_type`, `msg_type`, and `content`. |
 | Nothing arrives | Bot not published, not approved, or chat not started | Publish/approve the app; open a chat with the bot. |
+| Handshake timeout / connection refused | Proxy down or network flapping | Queued automatically; replay with `flush`. |
+
+Retry policy: network errors, timeouts, and 5xx/429 back off exponentially (60s
+→ 1h, up to `max_attempts`). Permanent errors are marked dead immediately so the
+log stays readable. `doctor` shows the current backlog.
 
 The card uses Feishu Card JSON 2.0. If markdown appears as raw text, or the card looks unstyled, confirm the Feishu client is version 7.20 or newer. The GUI preview is a local approximation of Card 2.0, not the Feishu renderer.
 

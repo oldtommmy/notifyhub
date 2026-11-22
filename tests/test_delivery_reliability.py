@@ -41,7 +41,7 @@ with patch("notifyhub.router.get_sender", return_value=send):
 
     def test_ambiguous_submission_is_not_resent_after_restart(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = {'state_path': str(Path(directory) / 'state.json'), 'channels': {'feishu_app': {'enabled': True}}}
+            config = {'state_path': str(Path(directory) / 'state.json'), 'channels': {'feishu_app': {'enabled': True, 'app_id': 'test', 'app_secret': 'test', 'receive_id': 'test'}}}
             notification = Notification(source='dsh', event='Stop', status_text='done', dedupe_key='dsh:1:2')
             with patch('notifyhub.router.get_sender', return_value=lambda *args: (_ for _ in ()).throw(feishu_app.AmbiguousSendError('timeout'))) as sender:
                 self.assertFalse(dispatch(notification, config, logging.getLogger('test'))[0][1])

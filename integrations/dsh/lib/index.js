@@ -196,6 +196,8 @@ export function apply(ctx, config = {}) {
     }
 
     if (event.type !== "turn/end") return;
+    const nativeTurns = globalThis[Symbol.for("notifyhub.nativeBridge.turns")];
+    if (nativeTurns?.has(`${session.id}:${event.data?.turn}`)) return;
     const status = event.data?.reason?.kind || event.data?.kind || "completed";
     log(`turn/end session=${session.id} status=${status}`);
 

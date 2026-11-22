@@ -1,0 +1,5 @@
+- insert:
+    - id: notifyhub-native-bridge
+      name: dsh-notifyhub-native-bridge
+      config:
+        enabled: false

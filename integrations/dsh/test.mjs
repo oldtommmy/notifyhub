@@ -145,6 +145,15 @@ try {
   assert(selection.model === "deepseek-v4.1-flash-1017", "model/selection mismatch");
   assert(selection.title === "selection", "cwd basename fallback mismatch");
 
+  // A phone-owned turn is returned by the native plugin, not notified twice.
+  const nativeTurns = globalThis[Symbol.for("notifyhub.nativeBridge.turns")] ??= new Set();
+  nativeTurns.add("session-native:9");
+  handle({ id: "session-native", header: {}, deriveMessages: () => [] },
+    { type: "turn/end", data: { turn: 9, reason: { kind: "completed" } }, seq: 99, time: 99 });
+  const notificationLog = await fs.readFile(process.env.NOTIFYHUB_DSH_LOG, "utf8");
+  assert(!notificationLog.includes("send session=session-native"), "phone turn must not notify twice");
+  nativeTurns.delete("session-native:9");
+
   // npm layout: lib/ and scripts/notifyhub.py live beside each other.
   const pkgDir = path.join(directory, "pkg");
   await fs.mkdir(path.join(pkgDir, "lib"), { recursive: true });
