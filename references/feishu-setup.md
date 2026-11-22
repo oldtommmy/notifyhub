@@ -75,6 +75,7 @@ python3 scripts/notifyhub.py doctor
 
 确认成功后，回到 [README](../README.md#quick-start) 安装对应 agent 的通知 hook 或插件。
 
+<a id="message-events"></a>
 ## 5. 续聊：订阅单聊消息
 
 这部分用于 dsh 原生续聊插件（实验性，随 `main` 提供）。配置长连接前，先按[原生插件说明](../integrations/dsh-native-bridge/README.md#installation)准备本地运行环境。飞书后台如提示需要先建立连接，启动 dsh 中已配置的原生插件后再保存。
@@ -86,8 +87,18 @@ python3 scripts/notifyhub.py doctor
 3. 确认应用身份权限 `im:message.p2p_msg:readonly` 已开通。
 4. 保存，并按后台提示完成发布或审核。
 
+<details>
+<summary>查看「事件配置」截图</summary>
+
+![飞书事件配置：使用长连接接收事件，添加接收消息](../assets/feishu-events-setup.png)
+
+截图来自已有应用，包含多种额外订阅。这里只需添加 **接收消息 `im.message.receive_v1`**；消息已读、表情回应、会议和纪要事件不属于当前续聊的必需项。
+
+</details>
+
 长连接由本机主动连接飞书。机器需要联网；原生续聊还要求 dsh App 持续运行、Mac 保持唤醒。
 
+<a id="card-callbacks"></a>
 ## 6. 按钮：配置卡片回调
 
 在 **事件与回调 → 回调配置** 中单独设置：
@@ -98,6 +109,15 @@ python3 scripts/notifyhub.py doctor
 4. 在原生续聊使用的独立配置中设置 `bridge.card_actions=true`，重启 dsh 加载配置。
 
 注意选择新版 `card.action.trigger`，而非旧版 `card.action.trigger_v1`。官方说明见[接收并处理回调](https://open.feishu.cn/document/event-subscription-guide/callback-subscription/receive-and-handle-callbacks)。
+
+<details>
+<summary>查看「回调配置」截图</summary>
+
+![飞书回调配置：使用长连接接收回调，添加卡片回传交互](../assets/feishu-callbacks-setup.png)
+
+与「事件配置」分别设置。确认本标签页下已出现 **卡片回传交互 `card.action.trigger`**，只在事件标签页添加“接收消息”不会启用按钮。
+
+</details>
 
 原生插件的按钮默认关闭，未订阅回调时继续使用回复序号选择会话。启用后可点击“继续此会话”“刷新列表”“当前会话”；结果卡片还能“切回此会话”。
 
