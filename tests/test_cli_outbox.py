@@ -1,4 +1,5 @@
 import io
+import logging
 import json
 import tempfile
 import unittest
@@ -17,6 +18,10 @@ class DoctorTests(unittest.TestCase):
         self.config_path = self.root / "config.json"
 
     def tearDown(self):
+        logger = logging.getLogger("notifyhub")
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            handler.close()
         self.temp.cleanup()
 
     def write_config(self, extra=None):
@@ -107,6 +112,10 @@ class FlushCommandTests(unittest.TestCase):
         )
 
     def tearDown(self):
+        logger = logging.getLogger("notifyhub")
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            handler.close()
         self.temp.cleanup()
 
     def run_flush(self, *args):

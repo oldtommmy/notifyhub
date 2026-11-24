@@ -61,7 +61,7 @@ class NativeGuiInstallTests(unittest.TestCase):
         self.assertIn('!!js () => true', self.profile.read_text())
         self.assertIn('enabled: false', self.profile.read_text())
         self.assertIn('- id: dsh-notifyhub', self.profile.read_text())
-        self.assertIn(str(self.config), self.profile.read_text())
+        self.assertIn(json.dumps(str(self.config)), self.profile.read_text())
 
     def test_enable_requires_explicit_allowlist_before_mutation(self):
         old = self.profile.read_text()

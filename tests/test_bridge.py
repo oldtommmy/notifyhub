@@ -1,4 +1,7 @@
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 import json
 import logging
 import os
@@ -8,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from notifyhub import agents, bridge
+from notifyhub import agents, bridge, sessions_index
 from notifyhub.config import DEFAULT_CONFIG, deep_merge
 from notifyhub.events import Notification
 from notifyhub.feishu_listener import bot_mentions_text, extract_text
@@ -1001,6 +1004,7 @@ class TopicRunIsolationTests(unittest.TestCase):
         self.assertEqual(service.guard.active(), {})
 
 
+@unittest.skipIf(fcntl is None, "Requires Unix flock")
 class InstanceLockTests(unittest.TestCase):
     """Feishu delivers each event to only one of an app's long connections, so a
     second bridge silently steals messages. Starting twice must fail loudly."""
@@ -1374,6 +1378,7 @@ def _service():
     return bridge_cli.BridgeService(config, logger)
 
 
+@unittest.skipIf(fcntl is None, "Requires Unix flock")
 class SessionProbeTests(unittest.TestCase):
     """A session is busy only while another process holds its flock. dsh never
     deletes session.lock on release, so the file's presence must not block."""
@@ -1462,6 +1467,10 @@ class HandoffCommandTests(unittest.TestCase):
     """\u002fhandoff seeds the next message with a desktop conversation digest."""
 
     def setUp(self):
+        catalog = patch.object(bridge_cli.sessions_index, "list_sessions", return_value=[
+            sessions_index.ExistingSession(agent="dsh", session_id="session-desk")])
+        catalog.start()
+        self.addCleanup(catalog.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.sessions = bridge.SessionMap(str(Path(self.temp.name) / "s.json"))
         service = bridge_cli.BridgeService.__new__(bridge_cli.BridgeService)

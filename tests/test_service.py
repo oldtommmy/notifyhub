@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import plistlib
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -58,7 +59,8 @@ class WritePlistTests(unittest.TestCase):
             plist = {"Label": "com.notifyhub.bridge", "ProgramArguments": ["x"]}
             service.write_plist(plist, target)
             self.assertEqual(plistlib.loads(target.read_bytes()), plist)
-            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual(target.stat().st_mode & 0o777, 0o600)
 
     def test_round_trips_through_the_real_plist_parser(self):
         with TemporaryDirectory() as tmp:
