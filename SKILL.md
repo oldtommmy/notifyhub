@@ -1,6 +1,6 @@
 ---
 name: notifyhub
-description: Configure and troubleshoot Feishu completion notifications for Codex, DeepSeek Harness (dsh), Claude Code and Command Code, or native Feishu continuation of dsh and Codex conversations. Use for notifyhub、完成通知、飞书机器人配置、通知 hook、剩余额度通知、飞书续聊 dsh、飞书续聊 Codex、会话卡片和按钮切换. Supports local configuration, permission presets, hook/plugin installation and end-to-end checks.
+description: Configure and troubleshoot Feishu completion notifications for Codex, DeepSeek Harness (dsh), Claude Code, Command Code and Google Antigravity, or native Feishu continuation of dsh and Codex conversations. Use for notifyhub、完成通知、飞书机器人配置、通知 hook、剩余额度通知、飞书续聊 dsh、飞书续聊 Codex、会话卡片和按钮切换. Supports local configuration, permission presets, hook/plugin installation and end-to-end checks.
 metadata:
   version: "0.9.2"
 ---
@@ -14,7 +14,7 @@ Resolve `SKILL_ROOT` to this directory and use its bundled scripts. Respect the 
 | Request | Route | Read when needed |
 |---|---|---|
 | Completion notifications | Python CLI + corresponding hook or notification plugin | [Feishu setup](references/feishu-setup.md), [configuration](references/config.md) |
-| Feishu continues a dsh or Codex conversation | Unified dsh-notifyhub plugin inside dsh Desktop | [Native bridge installation and limits](integrations/dsh-native-bridge/README.md) |
+| Feishu continues a desktop conversation | Independent NotifyHub gateway with agent adapters, or an existing dsh-hosted installation | [Native bridge installation and limits](integrations/dsh-native-bridge/README.md) |
 | Delivery failure or duplicates | Identify the actual launcher/version, state file and sender before changing retry behavior | [Troubleshooting](references/troubleshooting.md) |
 
 Default to Feishu app-bot private messages. Preserve a working webhook or other channel when that is the user's preference. Native continuation is experimental; the desktop host must remain running and the Mac awake/online. It is separate from the legacy `bridge start` headless implementation.
@@ -65,7 +65,7 @@ Read [integrations/dsh-native-bridge/README.md](integrations/dsh-native-bridge/R
 
 1. Verify the user's dsh version and service interfaces. The implementation was checked against dsh 0.2.2-rc.5. Use `sessionQuery` for the historical main-session catalog and `sessionController.resolveAgent` for cold restoration; send input through the owning agent's native inbox. Do not spawn headless to compete with the desktop writer.
 2. Guide the user to import the complete [bot-config.json](bot-config.json), the same default used for notifications. Permission import, message event subscription and card callback subscription are separate settings. Subscribe to `im.message.receive_v1` using the outbound long connection. Enable buttons only after `card.action.trigger` is configured for long-connection callbacks.
-3. Prefer the **飞书续聊** card in the GUI: save credentials, enter verified allowlist IDs, select dsh, Codex or both after subscribing to messages, and enable card buttons after subscribing to card callbacks, then install/apply. The GUI installs one `dsh-notifyhub` plugin or preserves an existing unified Market installation, prepares its stable Python runtime and separate config, and migrates an older two-plugin desktop installation. Leaving both agents unchecked keeps remote continuation disabled. Both engines currently share the transport hosted by the dsh Desktop plugin. For manual installation, prepare a dedicated stable runtime directory with `scripts/`, the unified plugin and a Python environment containing `lark-oapi>=1.8`. Use a separate config such as `~/.config/notifyhub/native-bridge.json`; back up existing files and preserve notification settings. Avoid linking the live runtime to a checkout that changes branches.
+3. Prefer the **飞书续聊** card in the GUI: save credentials, enter verified allowlist IDs, select dsh, Codex or both after subscribing to messages, and enable card buttons after subscribing to card callbacks, then install/apply. The GUI installs one `dsh-notifyhub` plugin or preserves an existing unified Market installation, prepares its stable Python runtime and separate config, and migrates an older two-plugin desktop installation. Leaving both agents unchecked keeps remote continuation disabled. With the independent gateway installed, Feishu I/O is owned by NotifyHub. Codex connects directly, Antigravity uses its Sidecar, and dsh connects through a local Unix socket adapter. For manual installation, prepare a dedicated stable runtime directory with `scripts/`, the unified plugin and a Python environment containing `lark-oapi>=1.8`. Use a separate config such as `~/.config/notifyhub/native-bridge.json`; back up existing files and preserve notification settings. Avoid linking the live runtime to a checkout that changes branches.
 4. Set `bridge.enabled=true`, `bridge.default_agent="dsh"`, and the verified owner's `open_id` in `bridge.allow_open_ids`. Empty allowlists reject everyone. `bridge.card_actions` defaults false; keep numeric selection usable without callbacks.
 5. Use the unified `dsh-notifyhub` package from DSH Market, GitHub Releases or the GUI. `install-dsh` installs the bundle with notifications on by default. To enable continuation, apply the GUI settings or configure `continuation` in the desktop profile as documented. Its child command ends with `bridge native-transport`.
 6. Keep the legacy headless bridge stopped while the native transport is active. The unified plugin suppresses ordinary dsh notifications for phone-owned turns.
@@ -84,6 +84,10 @@ These are messages sent to the bot in Feishu, not terminal commands. Explain the
 - Click **继续此会话**, reply with the row number within five minutes, or send `/attach 2` to select row 2 of the current page.
 - **上一页** and **下一页** change pages. **状态** or `/status` shows the current binding.
 - Send ordinary text after binding. It goes to the selected agent's original conversation. Use **切回此会话** on an answer card to return to its conversation.
+
+## Antigravity integration
+
+Use `notifyhub.py install-antigravity` to install the Stop hook. With Feishu credentials and a verified allowlist present, add `--continuation` to configure the independent Antigravity-managed sidecar. The independent gateway owns Feishu I/O and uses `gateway.json`. Install its macOS login service with `--config ~/.config/notifyhub/gateway.json install-gateway`. The Antigravity Sidecar only submits input through agentapi. A bot has one active receiver. During migration, set `bridge.gateway_enabled=true` in the dsh adapter config, reload its plugin and stop its old Feishu receiver before starting the gateway. In Antigravity Desktop, complete a turn in the target conversation so it appears in the list. Send **Antigravity会话** or select **Antigravity 会话** in the **帮助** menu. Match lifecycle results using the transcript position before submission and the exact input text. See the [Antigravity section](README.md#google-antigravity实验性).
 
 ## Diagnostics and boundaries
 

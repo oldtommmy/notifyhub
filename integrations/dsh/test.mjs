@@ -159,7 +159,7 @@ try {
   await fs.mkdir(path.join(pkgDir, "lib"), { recursive: true });
   await fs.mkdir(path.join(pkgDir, "scripts"), { recursive: true });
   await fs.writeFile(path.join(pkgDir, "package.json"), JSON.stringify({ type: "module" }));
-  await fs.copyFile(new URL("./lib/index.js", import.meta.url), path.join(pkgDir, "lib", "index.js"));
+  await fs.cp(new URL("./lib/", import.meta.url), path.join(pkgDir, "lib"), { recursive: true });
   await fs.writeFile(path.join(pkgDir, "scripts", "notifyhub.py"), "");
   const resolverLog = path.join(directory, "resolver.log");
   process.env.NOTIFYHUB_DSH_LOG = resolverLog;

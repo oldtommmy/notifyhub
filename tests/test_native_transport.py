@@ -38,7 +38,7 @@ class NativeTransportTests(unittest.TestCase):
         transport.inbound(kind=kind, payload=payload, message_id='om_1', chat_id=chat, sender_id='owner', chat_type='p2p')
         self.assertFalse(self.frames)
         view = transport.outbound.get_nowait()['view']
-        self.assertEqual(view, {'type': 'help', 'dsh': True, 'codex': True})
+        self.assertEqual(view, {'type': 'help', 'dsh': True, 'codex': True, 'antigravity': False})
         card = build_native_card(view, action_value=lambda k, p, e: transport.actions.sign(chat, k, p, e))
         ds, codex, status = card['elements'][1]['actions']
 
@@ -58,7 +58,7 @@ class NativeTransportTests(unittest.TestCase):
             self.assertEqual(transport.codex.routes[chat], 'dsh')
 
     def test_help_without_card_callbacks_shows_only_available_commands(self):
-        card = build_native_card({'type': 'help', 'dsh': False, 'codex': True})
+        card = build_native_card({'type': 'help', 'dsh': False, 'codex': True, 'antigravity': False})
         elements = card['elements']
         self.assertTrue(all(element['tag'] == 'div' for element in elements))
         self.assertIn('Codex会话', elements[-1]['text']['content'])

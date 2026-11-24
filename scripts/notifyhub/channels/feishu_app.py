@@ -134,12 +134,17 @@ REPLY_PATH = "/open-apis/im/v1/messages/{message_id}/reply"
 def _token_for(config):
     timeout = float(config.get("timeout_seconds", 5))
     base_url = config.get("base_url", "https://open.feishu.cn")
-    token = get_tenant_token(
-        config.get("app_id", ""),
-        config.get("app_secret", ""),
-        timeout,
-        base_url,
-    )
+    # Token acquisition cannot send a message. Retrying it is safe even after
+    # a timeout, while an ambiguous message submission must stay single-shot.
+    for attempt in range(3):
+        try:
+            token = get_tenant_token(
+                config.get("app_id", ""), config.get("app_secret", ""), timeout, base_url,
+            )
+            break
+        except TransportError:
+            if attempt == 2:
+                raise
     return token, base_url.rstrip("/"), timeout
 
 

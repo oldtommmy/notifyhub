@@ -27,5 +27,6 @@ def hook_command(config_path, source="codex"):
             str(config_path),
             "hook",
             source,
+            *(["--no-flush"] if source == "antigravity" else []),
         ]
     )

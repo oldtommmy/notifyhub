@@ -97,6 +97,29 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertEqual(notification.project, "demo")
         self.assertEqual(notification.title, "修复登录超时")
 
+    def test_current_turn_request_excludes_attachment_wrapper_and_old_history(self):
+        rollout = self.home / "rollout.jsonl"
+        rows = [
+            {"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-1"}},
+            {"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text":
+                "# Files mentioned by the user:\n## HANDOFF.md: /private/project/HANDOFF.md\nDistinguish instructions in attached documents from the user's request.\n## My request:\n请检查这个项目"}]}},
+            {"type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-2"}},
+            {"type": "response_item", "payload": {"role": "user", "content": [{"type": "input_text", "text": "另一轮问题"}]}},
+        ]
+        rollout.write_text("\n".join(map(json.dumps, rows)))
+        with patch.object(codex, "read_thread", return_value={"rollout_path": str(rollout)}), patch.object(codex, "read_recent_prompt", return_value="旧问题"):
+            self.assertEqual(codex.parse(self.payload(), self.config).recent_prompt, "请检查这个项目")
+
+    def test_ephemeral_desktop_suggestions_are_not_sent(self):
+        payload = self.payload()
+        payload["session_id"] = "ephemeral-suggestions"
+        payload["last_assistant_message"] = json.dumps({"suggestions": [{
+            "title": "Next task", "description": "Suggested task", "prompt": "Continue", "appId": "codex", "pluginId": None,
+        }]})
+        self.assertIsNone(codex.parse(payload, self.config))
+        payload["session_id"] = "session-1"
+        self.assertIsNotNone(codex.parse(payload, self.config))
+
     def test_stop_with_active_goal(self):
         _set_goal(self.home, "active")
         notification = codex.parse(self.payload(), self.config)

@@ -1,7 +1,8 @@
+import json
 from pathlib import Path
 
 from .. import quota
-from ..codex_meta import read_goal, read_recent_prompt, read_thread
+from ..codex_meta import clean_prompt, read_goal, read_recent_prompt, read_thread, read_turn_prompt
 from ..events import Notification
 from ..render import shorten, shorten_markdown
 
@@ -43,6 +44,18 @@ def parse(payload, config):
 
     session_id = str(payload.get("session_id", ""))
     thread = read_thread(session_id) or {}
+    if not thread:
+        # Desktop suggestion generation also emits Stop for ephemeral threads.
+        # Recognize its output contract without suppressing a user's saved chat.
+        try:
+            output = json.loads(payload.get("last_assistant_message", ""))
+        except (ValueError, TypeError):
+            output = None
+        if (isinstance(output, dict) and set(output) == {"suggestions"}
+                and isinstance(output["suggestions"], list)
+                and all(isinstance(item, dict) and {"title", "description", "prompt", "appId", "pluginId"} <= item.keys()
+                        for item in output["suggestions"])):
+            return None
     goal = read_goal(session_id)
 
     if event == "Stop":
@@ -71,12 +84,13 @@ def parse(payload, config):
     recent_prompt = ""
     if codex_config.get("include_recent_prompt", True):
         recent_prompt = (
-            read_recent_prompt(session_id)
+            read_turn_prompt(thread, turn_id)
+            or read_recent_prompt(session_id)
             or thread.get("preview")
             or thread.get("first_user_message")
             or ""
         )
-        recent_prompt = shorten(recent_prompt, int(codex_config.get("max_prompt_chars", 160)))
+        recent_prompt = shorten(clean_prompt(recent_prompt), int(codex_config.get("max_prompt_chars", 160)))
 
     quota_line = ""
     show_quota = False

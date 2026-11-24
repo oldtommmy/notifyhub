@@ -15,6 +15,9 @@ from .state import state_lock
 
 def native_config_path(config_file):
     path = Path(config_file)
+    gateway = path.with_name('gateway.json')
+    if gateway.exists():
+        return gateway
     return path.with_name('native-bridge.json' if path.name == 'config.json' else path.stem + '.native.json')
 
 

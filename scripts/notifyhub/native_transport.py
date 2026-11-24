@@ -12,6 +12,7 @@ from .log import get_logger
 from .native_cards import build_native_card
 from .native_actions import CardActions
 from .codex_bridge import CodexBridge
+from .antigravity_bridge import AntigravityBridge
 from .bridge import is_allowed
 from .feishu_listener import SeenMessages
 
@@ -28,6 +29,8 @@ class NativeTransport:
         self.listener = FeishuListener(config, self.inbound, logger, reply=self.refusal, card_action=self.handle_card_action)
         self.outbound = queue.Queue(maxsize=256)
         self.codex = CodexBridge(config, self.enqueue, logger, state_path=config.get('bridge', {}).get('codex_ledger_path'))
+        self.antigravity = AntigravityBridge(config, self.enqueue)
+        self.antigravity_chats = set()
         self.worker = threading.Thread(target=self._send_loop, daemon=True)
 
     def inbound(self, **message):
@@ -42,8 +45,24 @@ class NativeTransport:
             self.enqueue({'type': 'reply', 'message_id': message_id, 'key': 'help', 'view': {
                 'type': 'help', 'dsh': self.codex.dsh_enabled,
                 'codex': self.codex.enabled and message.get('chat_type') == 'p2p',
+                'antigravity': self.antigravity.enabled and message.get('chat_type') == 'p2p',
             }})
             return
+        engine = message.get('engine')
+        agent, prompt = message.get('payload') if message.get('kind') == 'task' else ('', '')
+        alias = str(prompt).strip().lower().replace(' ', '')
+        if alias == 'antigravity会话':
+            engine = 'antigravity'
+            message.update(kind='attach_list', payload='')
+        if engine == 'antigravity' or (not engine and (chat in self.antigravity_chats or
+                                      self.antigravity.enabled and not self.codex.enabled and not self.codex.dsh_enabled)
+                                      and alias not in ('dsh会话', 'codex会话') and agent != 'codex'):
+            if self.antigravity.enabled and message.get('chat_type') == 'p2p':
+                self.antigravity_chats.add(chat)
+            self.antigravity.handle(message)
+            return
+        if engine in ('codex', 'dsh') or alias in ('dsh会话', 'codex会话') or agent == 'codex':
+            self.antigravity_chats.discard(chat)
         if self.codex.wants(message):
             self.codex.enqueue({'type': 'message', **message})
         elif self.codex.dsh_enabled:
@@ -74,7 +93,7 @@ class NativeTransport:
         engine = value.get('engine', 'dsh')
         self.inbound(kind=value['kind'], payload=value['payload'], message_id=request_id,
                      chat_id=chat, sender_id=sender,
-                     chat_type=self.chat_types.get(chat, 'p2p' if engine == 'codex' else ''),
+                     chat_type=self.chat_types.get(chat, 'p2p' if engine in ('codex', 'antigravity') else ''),
                      engine=None if engine == 'current' else engine)
         return toast('已收到，正在处理。')
 
@@ -96,14 +115,23 @@ class NativeTransport:
 
     def receipt(self, response, status):
         receipt = {'type': 'delivery', 'request_id': response.get('request_id'), 'key': response.get('key'), 'status': status}
-        if response.get('request_id') in self.codex.data['requests']:
+        if response.get('view', {}).get('engine') == 'Antigravity' and response.get('key') == 'result':
+            self.antigravity.receipt(response['message_id'], status)
+        elif response.get('request_id') in self.codex.data['requests']:
             self.codex.enqueue(receipt)
         else:
             self.emit(receipt)
 
     def _send_loop(self):
         while True:
-            response = self.outbound.get()
+            try:
+                self.antigravity.poll(self.targets)
+            except (OSError, ValueError) as error:
+                self.logger.warning('Antigravity result check failed: %s', error)
+            try:
+                response = self.outbound.get(timeout=2)
+            except queue.Empty:
+                continue
             try:
                 app = self.config['channels']['feishu_app']
                 text = str(response.get('text', ''))
@@ -117,7 +145,7 @@ class NativeTransport:
                     key += ':' + message_id
                 if response.get('view'):
                     view = response['view']
-                    default_engine = 'codex' if view.get('engine') == 'Codex' else 'dsh'
+                    default_engine = view.get('engine', 'dsh').lower()
                     action_value = None
                     if self.buttons_enabled:
                         def action_value(kind, payload, engine=default_engine):
@@ -136,6 +164,9 @@ class NativeTransport:
 
 def cmd_native_transport(args):
     config = load_config(args.config)
+    if config.get('bridge', {}).get('gateway_enabled'):
+        from .gateway import run_dsh_client
+        return run_dsh_client(config)
     settings = config.get('bridge') or {}
     if not settings.get('enabled') or not settings.get('allow_open_ids'):
         raise SystemExit('native bridge requires bridge.enabled=true and a nonempty allow_open_ids')
