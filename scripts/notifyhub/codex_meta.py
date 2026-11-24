@@ -4,6 +4,48 @@ import re
 import sqlite3
 from pathlib import Path
 
+from .transcripts import _read_events
+
+
+def clean_prompt(text):
+    text = str(text or "").strip()
+    if text.startswith(("# Files mentioned by the user:", "Files mentioned by the user:")):
+        marker = re.search(r"(?m)^## My request:\s*\n", text)
+        if marker:
+            return text[marker.end():].strip()
+        return "附件消息"
+    if text.startswith(("<environment_context>", "<permissions instructions>", "<turn_aborted>")):
+        return ""
+    return text
+
+
+def read_turn_prompt(thread, turn_id):
+    """Read user text belonging to the hook's exact turn from its local rollout."""
+    path = thread.get("rollout_path")
+    if not path or not turn_id:
+        return ""
+    active = False
+    prompt = ""
+    for row in _read_events(path):
+        payload = row.get("payload") or {}
+        kind = row.get("type")
+        if kind == "event_msg" and payload.get("type") == "task_started":
+            active = payload.get("turn_id") == turn_id
+        elif kind == "turn_context":
+            active = payload.get("turn_id") == turn_id
+        elif active and kind == "response_item" and payload.get("role") == "user":
+            parts = [part.get("text", "") for part in payload.get("content", [])
+                     if isinstance(part, dict) and part.get("type") in ("text", "input_text")
+                     and not str(part.get("text", "")).lstrip().startswith(("<image ", "</image>"))]
+            text = clean_prompt("\n".join(parts))
+            if text:
+                prompt = text
+        elif active and kind == "event_msg" and payload.get("type") == "user_message":
+            text = clean_prompt(payload.get("message", ""))
+            if text:
+                prompt = text
+    return prompt
+
 
 def codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser()

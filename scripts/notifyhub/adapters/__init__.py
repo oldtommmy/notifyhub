@@ -1,6 +1,7 @@
-from . import claude, codex, commandcode, dsh
+from . import antigravity, claude, codex, commandcode, dsh
 
 _ADAPTERS = {
+    "antigravity": antigravity,
     "claude": claude,
     "codex": codex,
     "commandcode": commandcode,

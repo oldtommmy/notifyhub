@@ -226,7 +226,7 @@ App Secret 由我在本机 GUI 或环境变量填写，不要让我贴到聊天�
 
 ## 手机续聊 Codex（实验性）
 
-保持 dsh 桌面 App 运行以承载现有飞书长连接，并在 Codex 桌面端打开要继续的本地会话。
+使用独立 NotifyHub 网关时，保持目标 Codex 桌面会话打开。原有 dsh 插件承载收发的安装也可迁移到下方的独立网关。
 
 1. 在 notifyhub GUI 打开 **飞书续聊** 卡片，勾选 **Codex 续聊**。也可按需勾选 **dsh 续聊**。应用设置后重启 dsh。
 2. 与机器人私聊，发 **Codex会话**，点选或回复序号绑定本地会话。
@@ -236,6 +236,44 @@ App Secret 由我在本机 GUI 或环境变量填写，不要让我贴到聊天�
 首版通过 Codex 的实验性 App Server 队列协议提交输入，按消息 ID 匹配原轮次，并在 Codex 写入完成时间后回传结果。需要本机 CLI 支持队列及轮次读取接口；已核对的 CLI 版本为 0.155.1。每个会话允许一条未完成的手机请求。重启桥接后，请重新选择 Codex 入口，并在 Codex 中查看重启前仍在运行的请求。若同时安装了普通 Codex 完成通知 hook，可能收到原有的完成通知和续聊结果各一条。
 
 相关接口见 [OpenAI CLI 参考](https://learn.chatgpt.com/docs/cli/reference)和 [Codex App Server](https://learn.chatgpt.com/docs/app-server)。
+
+
+## 独立 NotifyHub 网关（macOS）
+
+独立网关统一持有飞书长连接。Codex 直接连接自己的本机接口，Antigravity 通过其托管 Sidecar 接收输入，dsh 通过本地适配器接入。使用某个 agent 时，保持对应的应用运行。
+
+配置使用 `~/.config/notifyhub/gateway.json`，在 GUI 已保存的飞书凭据基础上填写 `bridge.allow_open_ids`，并设置 `bridge.enabled=true`。通过 `bridge.codex_enabled`、`bridge.antigravity_enabled`、`bridge.dsh_enabled` 独立选择入口。Antigravity 的安装命令也可生成这份配置。
+
+```bash
+python3 scripts/notifyhub.py --config ~/.config/notifyhub/gateway.json install-gateway
+```
+
+在 macOS 上，该命令注册登录时启动的 `com.notifyhub.gateway` 服务。其他 Unix 系统可用 `gateway` 命令前台运行。续聊目前按实验性功能提供。
+
+迁移现有 dsh 安装时，在 dsh 插件所引用的配置中设置 `bridge.gateway_enabled=true`，再重载插件。它将转为本地适配器。同一个机器人只保留一个飞书接收进程，旧接收进程退出后再启动网关。该操作保留会话库和请求记录。
+
+## Google Antigravity（实验性）
+
+仅安装完成通知：
+
+```bash
+python3 scripts/notifyhub.py install-antigravity
+```
+
+在 NotifyHub 配置中保存飞书凭据和经过核实的 `bridge.allow_open_ids` 后，启用独立的 Antigravity 续聊：
+
+```bash
+python3 scripts/notifyhub.py install-antigravity --continuation
+python3 scripts/notifyhub.py --config ~/.config/notifyhub/gateway.json install-gateway
+```
+
+NotifyHub 网关负责飞书收发，Antigravity 的 Sidecar 负责向原会话发消息，共享 `gateway.json` 配置。保持 Antigravity 桌面 App 运行。先在 Antigravity 的目标会话完成一轮对话，随后在飞书私聊发 **Antigravity会话**，点选或回复序号绑定，再直接发送消息。**帮助** 菜单也会显示 Antigravity 入口。
+
+同一个飞书机器人只保留一个 NotifyHub 网关接收消息，多个 agent 共用它。
+
+列表会展示安装后通过 Stop hook 识别的会话。手机输入通过官方 Sidecar 发回原会话，桥接按发送前的记录位置与输入内容匹配回答，消息正文保留原文。官方接口会在桌面将输入显示为系统消息。每个会话同时处理一条手机请求。若入队后回执不明确，先回桌面查看该轮，或选择其他会话。Antigravity 的审批和工作区配置仍由桌面端控制。
+
+参考 [Hooks](https://antigravity.google/docs/hooks/) 和 [Sidecars](https://antigravity.google/docs/sidecars/)。
 
 <a id="faq"></a>
 ## 常见问题

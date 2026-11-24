@@ -5,7 +5,7 @@ import stat
 import time
 from pathlib import Path
 
-TARGETS = ("codex", "claude", "commandcode")
+TARGETS = ("codex", "claude", "commandcode", "antigravity")
 
 
 def target_path(target, home=None):
@@ -21,6 +21,8 @@ def target_path(target, home=None):
         return base / ".claude" / "settings.json"
     if target == "commandcode":
         return base / ".commandcode" / "settings.json"
+    if target == "antigravity":
+        return base / ".gemini" / "config" / "hooks.json"
     raise ValueError(f"unknown target: {target}")
 
 
@@ -38,6 +40,13 @@ def _read(path):
         raise ValueError("hooks file must contain an object")
     if not isinstance(data.get("hooks"), dict):
         data["hooks"] = {}
+    return data
+
+
+def _read_antigravity(path):
+    data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if not isinstance(data, dict):
+        raise ValueError("Antigravity hooks file must contain an object")
     return data
 
 
@@ -63,6 +72,17 @@ def _backup(path):
 
 def install_hooks(path, events, command, source="codex"):
     path = Path(path).expanduser()
+    if source == "antigravity":
+        if set(events) != {"Stop"}:
+            raise ValueError("Antigravity NotifyHub 只支持 Stop 事件")
+        data = _read_antigravity(path)
+        group = data.setdefault("notifyhub-antigravity", {})
+        if not isinstance(group, dict):
+            raise ValueError("notifyhub-antigravity hook group must contain an object")
+        backup = _backup(path)
+        group.update(enabled=True, Stop=[{"type": "command", "command": command, "timeout": 20}])
+        _write(path, data)
+        return {"path": path, "backup": backup, "events": ["Stop"], "command": command, "target": source}
     data = _read(path)
     backup = _backup(path)
 
@@ -102,6 +122,25 @@ def uninstall_hooks(path, events=None, source="codex"):
     path = Path(path).expanduser()
     if not path.exists():
         return {"path": path, "backup": None, "removed": 0, "target": source}
+    if source == "antigravity":
+        data = _read_antigravity(path)
+        group = data.get("notifyhub-antigravity")
+        handlers = group.get("Stop", []) if isinstance(group, dict) else []
+        if not isinstance(handlers, list) or (events is not None and "Stop" not in events):
+            handlers = []
+        kept = [item for item in handlers if not isinstance(item, dict) or not _is_ours(item, source)]
+        removed = len(handlers) - len(kept)
+        backup = None
+        if removed:
+            backup = _backup(path)
+            if kept:
+                group["Stop"] = kept
+            else:
+                group.pop("Stop")
+                if set(group) <= {"enabled"}:
+                    data.pop("notifyhub-antigravity")
+            _write(path, data)
+        return {"path": path, "backup": backup, "removed": removed, "target": source}
 
     data = _read(path)
     backup = _backup(path)
@@ -145,6 +184,13 @@ def has_hooks(path, events=None, source="codex"):
     path = Path(path).expanduser()
     if not path.exists():
         return False
+    if source == "antigravity":
+        try:
+            group = _read_antigravity(path).get("notifyhub-antigravity")
+        except (OSError, ValueError):
+            return False
+        handlers = group.get("Stop") if isinstance(group, dict) and group.get("enabled", True) else None
+        return isinstance(handlers, list) and any(isinstance(item, dict) and _is_ours(item, source) for item in handlers)
     try:
         data = _read(path)
     except (OSError, ValueError):

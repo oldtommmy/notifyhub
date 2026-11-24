@@ -47,6 +47,14 @@ def _read_payload(path=None):
 
 def cmd_hook(args):
     try:
+        return _process_hook(args)
+    finally:
+        if args.source == "antigravity" and not args.dry_run:
+            print("{}")
+
+
+def _process_hook(args):
+    try:
         config = load_config(args.config)
         logger = _logger(config, args.verbose)
     except Exception as error:
@@ -78,6 +86,14 @@ def cmd_hook(args):
     if args.dry_run:
         print(render_text(notification))
         return 0
+
+    if args.source == "antigravity" and config.get("antigravity", {}).get("track_sessions"):
+        from .antigravity_bridge import record_stop
+        try:
+            if record_stop(payload, notification):
+                return 0
+        except (OSError, ValueError) as error:
+            logger.warning("Antigravity continuation ledger unavailable: %s", error)
 
     try:
         results = dispatch(notification, config, logger, force=args.force)
@@ -188,6 +204,8 @@ def cmd_install_hooks(args):
     print("下一步:")
     if target == "codex":
         print("1. 打开 Codex，运行 /hooks 并信任新增的 notifyhub hook")
+    elif target == "antigravity":
+        print("1. 在 Antigravity 的设置 → Customizations → Hooks 确认 NotifyHub Stop hook 已启用")
     else:
         name = "Claude Code" if target == "claude" else "Command Code"
         print(f"1. 重启 {name}，运行 /hooks 确认新增的 notifyhub hook")
@@ -404,6 +422,22 @@ def build_parser():
     dsh.add_argument("--profile", default="web")
     dsh.add_argument("--print", action="store_true", dest="print_only")
     dsh.set_defaults(func=cmd_install_dsh)
+
+    agy = subparsers.add_parser("install-antigravity", help="安装 Antigravity 通知或飞书续聊")
+    agy.add_argument("--continuation", action="store_true", help="配置 Antigravity 托管 Sidecar 和独立网关")
+    from .antigravity_install import install
+    agy.set_defaults(func=lambda args: install(_config_target(args), args.continuation))
+    sidecar = subparsers.add_parser("antigravity-sidecar", help="启动 Antigravity 托管的续聊进程")
+    from .antigravity_bridge import run_sidecar
+    sidecar.set_defaults(func=lambda args: run_sidecar(_config_target(args)))
+
+    gateway_install = subparsers.add_parser("install-gateway", help="安装独立 NotifyHub 常驻网关")
+    from .gateway_install import install_gateway
+    gateway_install.set_defaults(func=lambda args: install_gateway(_config_target(args)))
+
+    gateway = subparsers.add_parser("gateway", help="独立飞书收发与多 agent 会话服务")
+    from .gateway import run_gateway
+    gateway.set_defaults(func=lambda args: run_gateway(_config_target(args)))
 
     bridge = subparsers.add_parser("bridge", help="飞书远程续聊桥接")
     bridge_sub = bridge.add_subparsers(dest="bridge_command")

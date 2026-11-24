@@ -24,6 +24,8 @@ def help_elements(view, action_value):
         engines.append(('dsh', 'DSH'))
     if view.get('codex'):
         engines.append(('codex', 'Codex'))
+    if view.get('antigravity'):
+        engines.append(('antigravity', 'Antigravity'))
     if not engines:
         return [markdown('此聊天暂无可用的续聊入口。请与机器人私聊，并在 NotifyHub 配置中启用续聊。')]
 
@@ -66,7 +68,9 @@ def build_native_card(view, max_chars=3000, action_value=None):
             if action_value:
                 elements.append({'tag': 'action', 'actions': [button('继续此会话', action_value('attach', row['id']), 'primary')]})
         if not rows:
-            elements.append(markdown('暂无可读取的历史主会话。请先在桌面 dsh 打开一个对话，再发「会话」。'))
+            hint = ('先在 Antigravity 桌面完成一轮对话，再发「Antigravity会话」。'
+                    if view.get('engine') == 'Antigravity' else '请先在桌面打开一个对话，再发「会话」。')
+            elements.append(markdown('暂无可读取的会话。' + hint))
         elements.append(markdown((f"共 {view['total']} 个主会话 · " if view.get('total') is not None else '') + f"第 {view.get('page', 0) + 1} 页 · 按最近活动排序"))
         if view.get('pages', 1) > 1:
             elements.append(markdown('发送 **上一页** 或 **下一页** 翻页。'))
@@ -83,7 +87,7 @@ def build_native_card(view, max_chars=3000, action_value=None):
             elements.append(markdown(text))
             elements.append({'tag': 'note', 'elements': [{'tag': 'plain_text', 'content': f"第 {view.get('turn', '?')} 轮 · 耗时 {view.get('duration', 0)} 秒 · 已写回原会话"}]})
         elif kind == 'accepted':
-            elements.append(markdown('消息已进入原会话队列。若桌面正在执行，当前轮结束后继续处理。\n需要审批时，请在桌面 dsh 处理。'))
+            elements.append(markdown('消息已进入原会话队列。若桌面正在执行，当前轮结束后继续处理。\n需要审批时，请在对应的桌面应用处理。'))
         else:
             elements.append(markdown('直接发消息继续聊。发 **会话** 切换对话，发 **状态** 查看当前会话。'))
         if kind in ('bound', 'status'):
@@ -100,8 +104,8 @@ def build_native_card(view, max_chars=3000, action_value=None):
             controls.insert(0, button('切回此会话' if kind == 'result' else '继续此会话', action_value('attach', session['id']), 'primary'))
         controls.append(button('使用帮助', action_value('help', '')))
         elements.append({'tag': 'action', 'actions': controls})
-    if view.get('engine') == 'Codex':
-        title = 'Codex · ' + title
+    if view.get('engine') in ('Codex', 'Antigravity'):
+        title = view['engine'] + ' · ' + title
     return {'config': {'wide_screen_mode': True}, 'header': {'template': color, 'title': {'tag': 'plain_text', 'content': title}}, 'elements': elements}
 
 

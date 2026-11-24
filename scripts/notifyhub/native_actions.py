@@ -24,7 +24,7 @@ class CardActions:
         if not isinstance(value, dict) or value.get('chat') != chat_id:
             return False
         engine, kind = value.get('engine', 'dsh'), value.get('kind')
-        if not (engine in ('dsh', 'codex') and kind in ('attach', 'attach_list', 'status', 'help')
+        if not (engine in ('dsh', 'codex', 'antigravity') and kind in ('attach', 'attach_list', 'status', 'help')
                 or engine == 'current' and kind == 'status'):
             return False
         try:
