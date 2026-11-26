@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from notifyhub import __version__
 from notifyhub import dsh_install
 from notifyhub.cli import main
 
@@ -19,7 +20,7 @@ class DshDiscoveryTests(unittest.TestCase):
         self.binary.parent.mkdir(parents=True)
         self.binary.write_text('#!/bin/sh\nexit 0\n')
         self.binary.chmod(0o755)
-        self.env = patch.dict(os.environ, {'NOTIFYHUB_DSH_BIN': ''})
+        self.env = patch.dict(os.environ, {'NOTIFYHUB_DSH_BIN': '', 'DSH_HOME': self.temp.name})
         self.env.start()
         self.candidates = patch.object(dsh_install, '_desktop_cli_candidates', return_value=[self.binary])
         self.candidates.start()
@@ -51,6 +52,17 @@ class DshDiscoveryTests(unittest.TestCase):
         self.assertTrue(result['ok'])
         self.assertEqual(run.call_args.args[0][0], str(self.binary))
         self.assertEqual(run.call_args.args[0][1:4], ['plugin', '--profile', 'desktop'])
+
+    def test_packaged_gui_preserves_its_market_installation(self):
+        profile = Path(self.temp.name).resolve() / 'profiles/desktop'
+        plugin = profile / 'node_modules/dsh-notifyhub'
+        (plugin / 'scripts').mkdir(parents=True)
+        (plugin / 'scripts/notifyhub.py').touch()
+        (profile / 'package.json').write_text('{"dependencies": {"dsh-notifyhub": "release-url"}}')
+        with patch.object(dsh_install, 'find_plugin', return_value=plugin), patch.object(dsh_install.subprocess, 'run') as run:
+            self.assertTrue(dsh_install.install('desktop')['ok'])
+            run.assert_not_called()
+            self.assertTrue(dsh_install.build_command('web')[-1].endswith(f'/v{__version__}/dsh-notifyhub.tgz'))
 
     def test_nonexecutable_bundle_is_not_used(self):
         if os.name == 'nt': self.skipTest('POSIX execute permission')

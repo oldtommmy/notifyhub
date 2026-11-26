@@ -1,6 +1,6 @@
 # DeepSeek Harness
 
-Install the full NotifyHub Skill for dsh, then use the local GUI to configure it. The Skill includes the dsh adapter required to receive desktop lifecycle events and continue the owning session. It uses the same notification settings, state, and release as the other agents.
+Install the NotifyHub Skill for dsh, or use the standalone plugin in DSH Market. Both routes use the same dsh adapter, local settings and notification state. Use the Skill to configure an independent gateway shared by multiple agents.
 
 ```bash
 python3 scripts/notifyhub.py install-skill --host dsh
@@ -8,6 +8,24 @@ python3 ~/.dsh/skills/notifyhub/scripts/notifyhub.py gui
 ```
 
 The installer prints the resolved location, including when `DSH_HOME` is set. dsh also discovers the shared `~/.agents/skills` directory. [DeepSeek Harness Skill discovery](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/skills.md#local-discovery-priority)
+
+<a id="market-plugin"></a>
+## Install or update the Market plugin
+
+Search for **NotifyHub** in [DSH Market](https://awesome-dsh-plugin.com/zh/), or install the latest release directly:
+
+```bash
+dsh plugin --profile desktop add https://github.com/oldtommmy/notifyhub/releases/latest/download/dsh-notifyhub.tgz
+python3 "${DSH_HOME:-$HOME/.dsh}/profiles/desktop/node_modules/dsh-notifyhub/scripts/notifyhub.py" gui
+```
+
+For Web completion notifications, replace `desktop` with `web` in both commands. Configure and test the channel in **通知渠道**, then restart the selected DeepSeek Harness host. For desktop continuation, follow the [independent gateway setup](../README.md#gateway) from the Skill so the gateway launcher stays at a stable path across plugin upgrades.
+
+To update, add the new release's version-specific tarball URL in the same profile, then restart that host. Copy the asset link from [GitHub Releases](https://github.com/oldtommmy/notifyhub/releases). For example:
+
+```bash
+dsh plugin --profile desktop add https://github.com/oldtommmy/notifyhub/releases/download/v0.9.3/dsh-notifyhub.tgz
+```
 
 <a id="missing-cli"></a>
 ## Resolve a missing dsh CLI
@@ -49,7 +67,7 @@ For Feishu continuation with the independent gateway, select **DeepSeek Harness*
 python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile desktop --continuation
 ```
 
-If an older Market install is present, apply the adapter from the current Skill to switch its source to the local bundled copy. This keeps the dsh package identity and sessions. For an old dsh-hosted Feishu receiver, use the [gateway migration steps](../integrations/dsh-native-bridge/README.md#migrate-gateway).
+To switch a Market install to the Skill, apply the adapter from the Skill. This keeps the dsh package identity and sessions. For a dsh-hosted Feishu receiver, use the [gateway migration steps](../integrations/dsh-native-bridge/README.md#migrate-gateway).
 
 For Windows notifications, use `python` instead of `python3`. If only the Windows Python launcher is available, set `NOTIFYHUB_PYTHON` to the actual Python interpreter path so the adapter can spawn it directly.
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.9.3
+
+- Release the NotifyHub Skill and unified DeepSeek Harness plugin together.
+  The existing DSH Market entry installs the latest plugin tarball.
+- Add a branded Feishu command menu, 5,000-character prompts, and a paginated
+  full-answer view when a continuation card truncates the reply.
+
 ### Skill distribution and settings
 
 - Install NotifyHub as one Skill, with dsh adapters bundled for local setup.

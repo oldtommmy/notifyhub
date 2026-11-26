@@ -2,12 +2,12 @@
 name: notifyhub
 description: Install and use NotifyHub for agent completion notifications, Feishu desktop continuation, and the local settings GUI. Use for notifyhub、管理界面、飞书机器人配置、完成通知、通知 hook、发件箱、版本更新、剩余额度、飞书续聊、会话卡片和按钮切换.
 metadata:
-  version: "0.9.2"
+  version: "0.9.3"
 ---
 
 # NotifyHub
 
-Resolve `SKILL_ROOT` to the directory containing this file. Use its bundled scripts. One Skill provides installation, configuration, and updates for all hosts. For dsh, the Skill provisions the local adapter that receives desktop session events and submits to the owning conversation.
+Resolve `SKILL_ROOT` to the directory containing this file. Use its bundled scripts. The Skill provides installation, configuration, and updates for all hosts. DeepSeek Harness can also install the packaged adapter from its [plugin market](references/dsh.md#market-plugin).
 
 ## Choose the operation
 
@@ -68,6 +68,7 @@ Buttons work on continuation menu, session and result cards. The user can always
 2. Report the installed version and any newer installable Skill release with its release notes. A check-only request ends here. When GitHub is unavailable, report the check status and keep the existing installation.
 3. When the user wants to update, choose the route for the active installation.
    - **Installed Skill**. Use **安装更新** in the GUI or run `python3 "$SKILL_ROOT/scripts/notifyhub.py" update --apply`. The updater verifies SHA-256 and reports the previous Skill's backup location.
+   - **DSH Market plugin**. Update `dsh-notifyhub` in the profile that uses it. Use the desired release's tarball URL for an existing installation. [Market install and update](references/dsh.md#market-plugin)
    - **Git checkout**. Check the current branch and working tree. Update the requested branch through Git while preserving local work.
    - **Pre-updater installation**. From the desired release or checkout, run `install-skill --skills-dir` with the existing Skill directory's parent. This preserves the install path referenced by existing hooks.
 4. Reopen the GUI from the updated path. For a running independent gateway, use that Skill's **飞书续聊 → 重载网关** or restart the foreground gateway from the same Python environment. Restart a desktop host after its active work finishes if it needs to load an updated adapter. Verify the launcher path and version again, especially when the gateway previously used a separate runtime. [User update instructions](README.md#updates)

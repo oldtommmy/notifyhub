@@ -47,13 +47,18 @@ class GatewayTests(unittest.TestCase):
             replies = []
             connection.transport = SimpleNamespace(enqueue=replies.append)
             threading.Thread(target=connection.serve, args=(path,), daemon=True).start()
-            for _ in range(100):
-                if path.exists():
-                    break
-                time.sleep(.01)
-            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-                client.connect(str(path))
+                # The socket path exists before its permissions are set and listen() starts.
+                deadline = time.monotonic() + 2
+                while True:
+                    try:
+                        client.connect(str(path))
+                        break
+                    except (FileNotFoundError, ConnectionRefusedError):
+                        if time.monotonic() >= deadline:
+                            raise
+                        time.sleep(.01)
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
                 for _ in range(100):
                     if connection.client is not None:
                         break

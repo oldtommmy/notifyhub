@@ -4,7 +4,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from . import __version__
 from .runtime import format_command as _format_command
+from .updates import RELEASES
 
 PROFILES = ("desktop", "web")
 
@@ -69,17 +71,24 @@ def build_command(profile="web"):
     if plugin is None:
         raise FileNotFoundError("integrations/dsh not found")
     dsh = dsh_binary(profile) or "dsh"
-    link_path = plugin.as_posix() if os.name == "nt" else str(plugin)
-    return [dsh, "plugin", "--profile", profile, "add", f"link:{link_path}"]
+    if (plugin / "scripts" / "notifyhub.py").is_file():
+        source = f"{RELEASES}/download/v{__version__}/dsh-notifyhub.tgz"
+    else:
+        source = f"link:{plugin.as_posix() if os.name == 'nt' else plugin}"
+    return [dsh, "plugin", "--profile", profile, "add", source]
 
 
 def format_command(command, windows=None):
     return _format_command(command, windows=windows)
 
 
-def profile_installed(profile):
+def _profile_path(profile):
     home = Path(os.environ.get("DSH_HOME", "~/.dsh")).expanduser()
-    path = home / "profiles" / profile / "package.json"
+    return home / "profiles" / profile
+
+
+def profile_installed(profile):
+    path = _profile_path(profile) / "package.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -107,6 +116,9 @@ def status():
 def install(profile="web"):
     if not profile or "/" in profile or "\\" in profile:
         return {"ok": False, "error": f"未知 profile：{profile}", "command": []}
+    installed = _profile_path(profile) / "node_modules" / "dsh-notifyhub"
+    if profile_installed(profile) and installed.resolve() == find_plugin():
+        return {"ok": True, "error": "", "command": [], "stdout": "", "stderr": ""}
     if not dsh_binary(profile):
         return {
             "ok": False,

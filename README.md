@@ -65,7 +65,7 @@ python3 ~/.agents/skills/notifyhub/scripts/notifyhub.py gui
 
 Codex 安装后在 `/hooks` 中信任 NotifyHub。Antigravity 可在宿主的 Hooks 设置里检查 Stop hook。Claude Code 和 Command Code 安装后重启宿主。
 
-DeepSeek Harness 同样从 NotifyHub Skill 配置。在 GUI 选桌面版或 Web，Skill 会安装随包的本地适配器。重启所选宿主即可使用。页面会优先检测桌面自带的 `dsh` CLI，并提供缺失时的安装引导。 [DeepSeek Harness 安装与迁移](references/dsh.md)
+DeepSeek Harness 可通过 Skill 或 DSH Market 接入。在 Skill 的 GUI 选择桌面版或 Web，即可安装随附的适配器。也可以在 DSH Market 搜索 **NotifyHub**，安装同版本的独立插件。安装后重启所选宿主。 [DeepSeek Harness 安装与更新](references/dsh.md#market-plugin)
 
 <a id="native-bridge"></a>
 ## 用飞书继续桌面会话
@@ -124,6 +124,8 @@ python3 ~/.agents/skills/notifyhub/scripts/notifyhub.py update --apply
 
 通过 Git 使用源码时，将工作区更新到所需版本后重新打开 GUI。通过其他路径运行独立网关的旧安装，可以从新 Skill 的 **飞书续聊**页重载网关，使服务引用当前 Skill。
 
+通过 DSH Market 安装的 `dsh-notifyhub` 在原 DeepSeek Harness profile 中更新。可从新版 GitHub Release 下载 `dsh-notifyhub.tgz` 覆盖安装。 [市场插件更新命令](references/dsh.md#market-plugin)
+
 <a id="faq"></a>
 ## 常见问题
 
@@ -141,8 +143,9 @@ python3 ~/.agents/skills/notifyhub/scripts/notifyhub.py update --apply
 ```bash
 sh scripts/selftest.sh
 python3 scripts/build_skill.py
+python3 scripts/build_dsh_plugin.py
 ```
 
-构建产物是 `dist/notifyhub-skill.zip` 和 `dist/notifyhub-skill.zip.sha256`。正式更新通道读取同一版本标签下的这两个 GitHub Release 资产。 [变更记录](CHANGELOG.md) · [品牌素材来源](assets/agents/README.md)
+发行版包含 Skill 压缩包、SHA-256 校验文件和 `dsh-notifyhub.tgz`。DSH 插件打包需要 Node.js 和 npm。DSH Market 的现有条目从最新 GitHub Release 获取插件。 [变更记录](CHANGELOG.md) · [品牌素材来源](assets/agents/README.md)
 
 作者 **oldtommmy**　·　协作者 **OpenAI Codex、Google Antigravity**　·　[MIT](LICENSE)

@@ -1,9 +1,15 @@
-# dsh adapter
+# NotifyHub for DeepSeek Harness
 
-This local Cordis adapter ships inside the [NotifyHub Skill](../../README.md#quick-start). The Skill's GUI and installer use this directory for dsh notifications and access to the original desktop session. The package keeps its historical name, `dsh-notifyhub`, so existing profiles can reuse the same identity.
+Get DeepSeek Harness completion notifications in Feishu and optionally continue the original desktop session. The adapter is available through [DSH Market](https://awesome-dsh-plugin.com/zh/) and is also included in the [NotifyHub Skill](https://github.com/oldtommmy/notifyhub#quick-start).
 
-- User setup and CLI detection are documented in the [dsh guide](../../references/dsh.md).
-- Continuation uses the [NotifyHub gateway](../../README.md#gateway) and the host session APIs. The [continuation reference](../dsh-native-bridge/README.md) describes migration and reliability.
-- Run `node integrations/dsh/test.mjs` from the repository root for adapter tests.
+```sh
+dsh plugin --profile desktop add https://github.com/oldtommmy/notifyhub/releases/latest/download/dsh-notifyhub.tgz
+python3 "${DSH_HOME:-$HOME/.dsh}/profiles/desktop/node_modules/dsh-notifyhub/scripts/notifyhub.py" gui
+```
+
+Use Python 3.10 or later. For Web notifications, use the `web` profile in both commands. Import the complete [bot-config.json](https://github.com/oldtommmy/notifyhub/blob/main/bot-config.json) in the Feishu developer console and save your credentials in the GUI. Restart DeepSeek Harness after applying the settings.
+
+- [Install, update and resolve CLI detection](https://github.com/oldtommmy/notifyhub/blob/main/references/dsh.md#market-plugin)
+- [Set up continuation and card buttons](https://github.com/oldtommmy/notifyhub#native-bridge)
 
 Author: oldtommmy. Contributors: OpenAI Codex and Google Antigravity.
