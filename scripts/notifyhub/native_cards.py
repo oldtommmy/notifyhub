@@ -1,8 +1,11 @@
 """Feishu layouts with optional callback buttons and numbered-reply fallback."""
+import json
 import re
 
 HELP_TITLE = 'NotifyHub · 续聊菜单'
 HELP_BACKGROUND = 'cus-0'
+# Leave room for the card metadata and signed buttons within Feishu's 30 KB payload.
+ANSWER_PAGE_BYTES = 24_000
 
 
 def escape(value):
@@ -76,7 +79,52 @@ def help_elements(view, action_value, logo_key=None):
     return elements
 
 
-def build_native_card(view, max_chars=3000, action_value=None, *, logo_key=None):
+def answer_pages(text):
+    """Return lossless page boundaries within the serialized text budget."""
+    pages = []
+    start = 0
+    while start < len(text):
+        end = min(len(text), start + ANSWER_PAGE_BYTES)
+        low, high = start, end + 1
+        while low + 1 < high:
+            candidate = (low + high) // 2
+            size = len(json.dumps(text[start:candidate], ensure_ascii=False).encode('utf-8'))
+            if size <= ANSWER_PAGE_BYTES:
+                low = candidate
+            else:
+                high = candidate
+        end = low
+        if end < len(text):
+            line_end = text.rfind('\n', start + (end - start) // 2, end)
+            if line_end >= 0:
+                end = line_end + 1
+        pages.append((start, end))
+        start = end
+    return pages
+
+
+def build_full_answer_card(view, pages, page, answer_id, action_value):
+    start, end = pages[page]
+    engine = view.get('engine')
+    title = f'{engine} · 完整回答' if engine else '完整回答'
+    elements = [{'tag': 'markdown', 'content': view['text'][start:end]}]
+    if len(pages) > 1:
+        elements.append({'tag': 'note', 'elements': [
+            {'tag': 'plain_text', 'content': f'第 {page + 1} 段，共 {len(pages)} 段'},
+        ]})
+    controls = []
+    if page > 0:
+        controls.append(button('上一段', action_value('view_answer', f'{answer_id}:{page - 1}')))
+    if page + 1 < len(pages):
+        controls.append(button('下一段', action_value('view_answer', f'{answer_id}:{page + 1}'), 'primary'))
+    controls.append(button('收起回答', action_value('view_answer', f'{answer_id}:-1')))
+    elements.append({'tag': 'action', 'actions': controls})
+    return {'config': {'wide_screen_mode': True},
+            'header': {'template': 'blue', 'title': {'tag': 'plain_text', 'content': title}},
+            'elements': elements}
+
+
+def build_native_card(view, max_chars=3000, action_value=None, *, logo_key=None, answer_id=None):
     kind = view.get('type')
     session = view.get('session') or {}
     elements = []
@@ -110,7 +158,8 @@ def build_native_card(view, max_chars=3000, action_value=None, *, logo_key=None)
         if kind == 'result':
             text = str(view.get('text') or '本轮没有文本回答。')
             if len(text) > max_chars:
-                text = text[:max_chars] + '\n\n（内容截断，完整回答见桌面原会话）'
+                suffix = '内容截断，点「显示完整回答」查看全文' if answer_id and action_value else '内容截断，完整回答见桌面原会话'
+                text = text[:max_chars] + f'\n\n（{suffix}）'
             elements.append(markdown(text))
             elements.append({'tag': 'note', 'elements': [{'tag': 'plain_text', 'content': f"第 {view.get('turn', '?')} 轮 · 耗时 {view.get('duration', 0)} 秒 · 已写回原会话"}]})
         elif kind == 'accepted':
@@ -129,6 +178,8 @@ def build_native_card(view, max_chars=3000, action_value=None, *, logo_key=None)
                 controls.append(button('下一页', action_value('attach_list', str(page + 1))))
         if kind != 'sessions' and session.get('id'):
             controls.insert(0, button('切回此会话' if kind == 'result' else '继续此会话', action_value('attach', session['id']), 'primary'))
+        if kind == 'result' and answer_id:
+            controls.insert(0, button('显示完整回答', action_value('view_answer', f'{answer_id}:0'), 'primary'))
         controls.append(button('使用帮助', action_value('help', '')))
         elements.append({'tag': 'action', 'actions': controls})
     if view.get('engine') in ('Codex', 'Antigravity'):

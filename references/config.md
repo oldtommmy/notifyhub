@@ -232,6 +232,13 @@ Permanent errors are never retried: `99991663` (bad credentials), `99991672`
 errors such as a missing `receive_id`. Fix the cause, then use
 `flush --retry-dead`.
 
+## Desktop continuation lengths
+
+The independent Feishu gateway reads these options from the `bridge` section of its `gateway.json`. A desktop-hosted bridge reads them from its own bridge configuration.
+
+- `max_prompt_chars` defaults to 5000 characters per incoming prompt. Longer prompts receive a reply asking the user to split the message.
+- `max_message_chars` defaults to 3000 characters for the result preview. With card callbacks enabled, **显示完整回答** opens the original full answer in the same card, with pagination if needed.
+
 ## Bridge (remote continue)
 
 See [bridge.md](bridge.md) for the full guide. Summary of the `bridge` block:

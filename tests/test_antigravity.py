@@ -54,6 +54,7 @@ class AntigravityTests(unittest.TestCase):
             with antigravity_bridge.ledger() as data:
                 data["heartbeat"] = int(time.time())
             bridge.handle({**msg, "kind": "task", "payload": ["dsh", "phone"], "message_id": "phone"})
+            answer = "完整回答" + "长" * 12_001 + "末尾"
             with antigravity_bridge.ledger() as data:
                 request = data["requests"]["phone"]
                 request["state"] = "submitted"
@@ -62,7 +63,7 @@ class AntigravityTests(unittest.TestCase):
                 rows = [{"type": kind, "content": input_message, "step_index": boundary_step}]
                 if intervening is not None:
                     rows.append({"type": "SYSTEM_MESSAGE", "content": intervening, "step_index": 4})
-                rows.append({"type": "PLANNER_RESPONSE", "status": "DONE", "content": "answer"})
+                rows.append({"type": "PLANNER_RESPONSE", "status": "DONE", "content": answer})
                 transcript.write_text("\n".join(map(json.dumps, rows)))
                 return antigravity_bridge.record_stop(event, notification)
 
@@ -73,7 +74,9 @@ class AntigravityTests(unittest.TestCase):
             self.assertFalse(stop("SYSTEM_MESSAGE", phone_input, "[Message] content=other external input"))
             self.assertTrue(stop("SYSTEM_MESSAGE", phone_input, "Internal tool instructions"))
             self.assertTrue(stop("SYSTEM_MESSAGE", phone_input, "Internal tool instructions"))
-            self.assertEqual(bridge.take_result({"phone": "chat"})["text"], "answer")
+            result = bridge.take_result({"phone": "chat"})
+            self.assertEqual(result["text"], answer)
+            self.assertTrue(result["view"]["answer_complete"])
             self.assertIsNone(bridge.take_result({"phone": "chat"}))
             bridge.receipt("phone", "delivered")
             with antigravity_bridge.ledger() as data:

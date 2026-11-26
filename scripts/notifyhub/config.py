@@ -112,6 +112,7 @@ DEFAULT_CONFIG = {
         "approval_policy": "never",
         "permission_mode": "workspace-write",
         "timeout_seconds": 1800,
+        "max_prompt_chars": 5000,
         "max_message_chars": 3000,
         # Reject a new task while the same session is still running.
         "reject_when_busy": True,

@@ -15,6 +15,7 @@ from .transcripts import _read_events
 
 SUBMISSION_TIMEOUT = 12
 SUBMISSION_STATES = ('submitting', 'submitted', 'unknown')
+LEGACY_ANSWER_LIMIT = 12000
 
 
 def ledger_path():
@@ -115,8 +116,8 @@ def record_stop(payload, notification):
                     answer = next((str(step['content']) for step in reversed(rows[index + 1:])
                                    if step.get('type') == 'PLANNER_RESPONSE' and step.get('status') == 'DONE'
                                    and step.get('content')), '本轮已结束，桌面没有记录文字回答。')
-                    request.update(state='finished', input_step=row.get('step_index'), answer=answer[:12000],
-                                   ok=notification.color == 'green')
+                    request.update(state='finished', input_step=row.get('step_index'), answer=answer,
+                                   answer_complete=True, ok=notification.color == 'green')
                     request.pop('prompt', None)
                 return True
             # A different external message starts its own turn. Internal system
@@ -273,4 +274,6 @@ class AntigravityBridge:
                         "view": {"type": "result", "engine": "Antigravity", "ok": req["ok"],
                                  "session": {**data["sessions"][req["session"]],
                                              "status": "completed" if req["ok"] else "failed"},
-                                 "text": req["answer"], "duration": round(time.time() - req["created"])}}
+                                 "text": req["answer"],
+                                 "answer_complete": req.get("answer_complete", len(req["answer"]) != LEGACY_ANSWER_LIMIT),
+                                 "duration": round(time.time() - req["created"])}}
