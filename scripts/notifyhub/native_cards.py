@@ -24,10 +24,10 @@ def help_banner(logo_key, description):
     return {
         'tag': 'column_set',
         'flex_mode': 'none',
-        'background_style': 'grey',
         'horizontal_spacing': 'default',
         'columns': [
             {'tag': 'column', 'width': 'weighted', 'weight': 3, 'vertical_align': 'center',
+             'background_style': 'blue-100',
              'elements': [markdown(f'**{HELP_TITLE}**\n{description}')]},
             {'tag': 'column', 'width': 'weighted', 'weight': 1, 'vertical_align': 'center',
              'elements': [{'tag': 'img', 'img_key': logo_key, 'mode': 'fit_horizontal',
