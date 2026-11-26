@@ -1,315 +1,147 @@
 <div align="center">
 
-# notifyhub
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo.png">
+  <img src="assets/logo-light.png" width="112" height="112" alt="NotifyHub 像素标识">
+</picture>
 
-**任务完成，飞书知道。离开电脑，接着聊。**
+# NotifyHub
 
-Codex · DeepSeek Harness · Claude Code · Command Code
+把桌面 Agent 的任务结果发到飞书，手机上也能继续原会话。
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
-![Platform](https://img.shields.io/badge/主要使用环境-macOS-black?logo=apple)
-![License](https://img.shields.io/badge/License-MIT-green)
+<p>
+<a href="https://openai.com/codex/"><img src="assets/agents/codex.png" alt="" width="28"> Codex</a>
+&nbsp;&nbsp;
+<a href="https://antigravity.google/"><img src="assets/agents/antigravity.png" alt="" width="28"> Antigravity</a>
+&nbsp;&nbsp;
+<a href="https://github.com/deepseek-ai/deepseek-harness"><img src="assets/agents/dsh.png" alt="" width="28"> DeepSeek Harness</a>
+&nbsp;&nbsp;
+<a href="https://claude.com/product/claude-code"><img src="assets/agents/claude.png" alt="" width="28"> Claude Code</a>
+&nbsp;&nbsp;
+<a href="https://commandcode.ai/"><img src="assets/agents/commandcode.png" alt="" width="28"> Command Code</a>
+</p>
 
-[快速开始](#quick-start) · [配置飞书](references/feishu-setup.md) · [手机续聊](#native-bridge) · [常见问题](#faq)
+[安装 Skill](#quick-start) · [配置飞书](references/feishu-setup.md) · [手机续聊](#native-bridge) · [更新](#updates) · [排障](#faq)
 
 </div>
 
-notifyhub 把本地 agent 的完成结果发到你的飞书私聊，带上会话名、最近提问和回答。启用实验性续聊后，可以在飞书选中桌面上的 dsh 或 Codex 会话，接着发消息并收到回答。
+## 从电脑到飞书
 
-| 我想做什么 | 选择 | 运行方式 |
-|---|---|---|
-| agent 跑完后收到提醒 | **完成通知** | 安装对应 hook 或 dsh 通知插件 |
-| 用飞书继续电脑上的 dsh 或 Codex 对话 | **原生续聊 · 实验性** | 统一的 dsh 桌面插件＋飞书长连接 |
+- **完成通知**覆盖上方五种 Agent，可选择显示最近提问、回答和会话 ID。Codex 还可以显示剩余额度和 Goal 信息。
+- **飞书续聊**支持 Codex、Antigravity 和 DeepSeek Harness。选中桌面会话后直接发消息，回复回到飞书原消息下。
+- **本地管理界面**通过页头切换通知渠道、Agent 接入、飞书续聊和版本更新。凭据与会话记录都保存在本机。
 
-> dsh 侧只安装一个 **`dsh-notifyhub`** 插件。它提供完成通知，并可按需启用 dsh、Codex 或两者的飞书续聊。
-
-## 一眼看懂
-
-- **完成通知**：状态、会话标题、最近提问、最终回答；Codex 还可显示剩余额度和 Goal 信息。
-- **本地配置界面**：填写飞书凭据、查找接收人、测试发送、安装通知集成。
-- **原生续聊**：查看历史主会话，点按钮切换，沿用原会话上下文、模型和工作目录。
-- **手机卡片**：项目、模型和运行状态一目了然；回答保留 Markdown，附轮次和耗时。
-
-<details>
-<summary>查看本地配置界面</summary>
-
-![notifyhub 本地配置界面](assets/gui-preview.png)
-
-</details>
+![NotifyHub 本地设置界面](assets/gui-preview.png)
 
 <a id="quick-start"></a>
-## 快速开始：先收到第一条通知
+## 快速开始
 
-### 1. 准备环境
+### 1. 安装 NotifyHub Skill
 
-准备 Python **3.10+** 和你要接入的 agent；飞书应用可以在打开 GUI 后按下一步创建。项目主要在 macOS 使用；原生续聊建议使用 Python **3.12**。
+使用 Python **3.10+**。在同一台电脑上用多个 Agent，可以安装到共享的 Skills 目录。
 
 ```bash
 git clone https://github.com/oldtommmy/notifyhub.git
 cd notifyhub
-python3 --version
+python3 scripts/notifyhub.py install-skill --host shared
+python3 ~/.agents/skills/notifyhub/scripts/notifyhub.py gui
 ```
 
-下文的命令均在仓库根目录执行。如果系统的 `python3` 太旧，请换成已安装的 `python3.12`。
+也可通过 `--host` 选择 Codex、DeepSeek Harness 或 Claude Code 的专用目录，或用 `--skills-dir` 指定路径。安装命令会显示实际 Skill 路径。把「用 NotifyHub Skill 帮我配置飞书完成通知」发给你的 Agent，即可由它引导。 [SKILL.md](SKILL.md)
 
-### 2. 先打开本地 GUI
+在源码目录试用时可直接运行 `python3 scripts/notifyhub.py gui`。终端会打印带本地访问令牌的地址，配置期间保持进程运行。
 
-```bash
-python3 scripts/notifyhub.py gui
-```
+### 2. 创建飞书机器人
 
-命令会启动本地配置服务并打开浏览器。没有自动打开时，使用终端打印的完整地址（含访问令牌）。配置期间保持该终端运行，按 `Ctrl+C` 退出。
+在[飞书开发者后台](https://open.feishu.cn/app)创建企业自建应用、添加机器人能力，再在权限管理中一次导入 **[bot-config.json 完整权限预设](bot-config.json)**，按后台提示发布。 [飞书配置图文教程](references/feishu-setup.md)
 
-先打开页面即可，尚未创建飞书应用时不必填写凭据。GUI 用于配置和测试完成通知；续聊的飞书长连接由 dsh 原生插件启动，打开 GUI 本身不会建立长连接。
+回到 GUI 的 **通知渠道 → 飞书应用机器人**。填入 App ID 和 App Secret 后，会自动查找应用所有者的 `open_id`。也可点击 **获取接收人**重试，或填写核实过的 ID。需要更改接收人类型或卡片格式时，展开 **接收类型与消息格式**。勾选启用通知并保存，点击 **测试当前渠道**确认收到通知。暂存凭据时可以保留开关关闭。
 
-### 3. 创建飞书机器人，回到 GUI 填写凭据
+群机器人 webhook 和 iMessage 可在同一页切换配置。凭据只需填入本机窗口或本机环境变量。 [配置文件与进阶选项](references/config.md)
 
-到 [飞书开发者后台](https://open.feishu.cn/app) 创建企业自建应用，开启机器人能力。在权限管理中一次导入 **[bot-config.json 完整权限预设](bot-config.json)**，按后台要求申请权限、配置应用可用范围并发布。
+### 3. 接入你使用的 Agent
 
-默认按完整 JSON 导入即可，无需逐个搜索权限。精简权限文件留给需要自行控制授权范围的用户。
+在 **Agent 接入 → 总览**查看各 Agent 的本机安装状态和完成通知开关。点击对应行的 **设置**，按需选择通知内容，再点 **安装接入**。字符上限和触发事件可在 **高级通知设置**中调整。
 
-完整步骤见 **[飞书机器人配置教程](references/feishu-setup.md)**。应用配置完成后，回到已打开的 GUI：
+Codex 安装后在 `/hooks` 中信任 NotifyHub。Antigravity 可在宿主的 Hooks 设置里检查 Stop hook。Claude Code 和 Command Code 安装后重启宿主。
 
-1. 填写应用的 **App ID** 和 **App Secret**。
-2. 接收人默认用 `open_id`。填完 App ID 和 App Secret，页面会自动查找应用所有者。也可以点击 **获取接收人** 重试，或填写已核实的接收人。
-3. 保存配置，点击测试发送，确认飞书私聊收到卡片。
-
-配置默认保存在 `~/.config/notifyhub/config.json`。App Secret 在本机界面或环境变量中填写，无需发给聊天里的 agent。
-
-<details>
-<summary>使用命令行配置</summary>
-
-先在本机设置环境变量 `NOTIFYHUB_FEISHU_APP_SECRET`，再执行：
-
-```bash
-# 查找应用所有者的 open_id；此步骤不发送消息
-python3 scripts/feishu_probe.py --app-id cli_xxxxxxxx --owner
-
-# App Secret 自动从环境变量读取；配置写入前会备份旧文件
-python3 scripts/setup_config.py \
-  --app-id cli_xxxxxxxx \
-  --receive-id ou_xxxxxxxx \
-  --receive-id-type open_id
-
-python3 scripts/notifyhub.py test --channel feishu_app
-```
-
-自动查找失败时，按[教程](references/feishu-setup.md#receiver)核对接收人和应用信息权限。
-
-</details>
-
-### 4. 接入你使用的 agent
-
-只安装对应的集成：
-
-| Agent | 安装命令 | 安装之后 |
-|---|---|---|
-| Codex | `python3 scripts/notifyhub.py install-hooks` | 在 `/hooks` 或桌面 Settings → Hooks 中信任 hook |
-| Claude Code | `python3 scripts/notifyhub.py install-hooks --target claude` | 重启宿主并检查 hook |
-| Command Code | `python3 scripts/notifyhub.py install-hooks --target commandcode` | 重启宿主并检查 hook |
-| DSH Desktop | `python3 scripts/notifyhub.py install-dsh --profile desktop` | 重启 dsh App |
-| dsh web | `python3 scripts/notifyhub.py install-dsh --profile web` | 重启 `dsh web` |
-
-```bash
-python3 scripts/notifyhub.py doctor
-```
-
-让对应 agent 完成一轮任务，确认飞书收到真实任务的完成通知。DSH 的 `desktop` 和 `web` 是不同 profile，需要分别安装。
-
-<details>
-<summary>检测不到 dsh CLI？先处理安装，再安装通知插件</summary>
-
-先检查 `command -v dsh` 和 `dsh --version`。macOS 已安装桌面 App 时，也检查其自带 CLI：
-
-```bash
-"/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" --version
-```
-
-若该命令可用，可在当前终端把对应 `bin` 目录加入 PATH 后继续安装插件，保留桌面版的 CLI 版本。确实未安装时，检查 Node.js/npm 后安装：
-
-```bash
-node --version
-npm --version
-npm view @deepseek-ai/dsh engines --json
-npm install -g @deepseek-ai/dsh
-dsh --version
-```
-
-Node.js 不存在时，先从 [Node.js 官方下载页](https://nodejs.org/en/download)安装满足 dsh 要求的版本。安装后若 PATH 尚未更新，重新打开终端再验证；不便全局安装时可用 `npx @deepseek-ai/dsh --version` 验证 npm 启动方式。完整处理流程见 [DSH 安装排障](references/dsh.md#missing-cli)。
-
-</details>
-
-### 安装统一的 dsh 插件
-
-在 dsh 插件市场搜索 **NotifyHub**。也可以从 [GitHub Releases](https://github.com/oldtommmy/notifyhub/releases/latest) 下载 `dsh-notifyhub` 安装包。要配置续聊，打开 notifyhub GUI 的 **飞书续聊** 卡片。
-
-1. 先保存上方的飞书凭据，并按教程导入完整 `bot-config.json`。
-2. 填写允许使用者的 `open_id`（多个用逗号分隔）。
-3. 订阅接收消息后，按需勾选“dsh 续聊”或“Codex 续聊”。订阅卡片回调后可开启会话卡片按钮。
-4. 点击 **安装并应用续聊**。GUI 会准备独立运行目录和 Python 依赖，并配置 desktop profile。若已有市场版统一插件，GUI 会沿用；旧双插件安装可在此迁移。
-5. 当前任务结束后重启 dsh，在飞书发“DSH会话”或“Codex会话”开始使用。
-
-不勾选启用时，会安装插件但保持续聊关闭。GUI 显示安装和配置状态；保存启用设置不代表已在运行，需重启宿主验证。首次安装依赖需要联网。
-
-## 也可以交给自己的 agent 安装
-
-把仓库的绝对路径交给能读取本地文件的 agent：
-
-```text
-请读取 /绝对路径/notifyhub/SKILL.md，帮我安装 notifyhub 的完成通知。
-先检查环境，再指导我配置飞书机器人、接收人和对应的 hook / 插件。
-App Secret 由我在本机 GUI 或环境变量填写，不要让我贴到聊天里。
-最后运行 doctor，告诉我宿主中还需完成哪些操作。
-```
-
-如果使用 Skills 目录，也可以把仓库安装到 `~/.codex/skills/notifyhub` 或对应宿主的 Skills 目录。安装路径应保持稳定，因为 hook 会引用 launcher 的绝对路径。
+DeepSeek Harness 同样从 NotifyHub Skill 配置。在 GUI 选桌面版或 Web，Skill 会安装随包的本地适配器。重启所选宿主即可使用。页面会优先检测桌面自带的 `dsh` CLI，并提供缺失时的安装引导。 [DeepSeek Harness 安装与迁移](references/dsh.md)
 
 <a id="native-bridge"></a>
-## 手机续聊：继续同一个 dsh 会话
+## 用飞书继续桌面会话
 
-**实验性功能，已包含在 `main`。** 当前原生方案运行在 dsh 桌面宿主内，Mac 需要保持唤醒、联网，dsh App 需要保持运行。
+<a id="gateway"></a>
+### 配置独立网关
 
-```text
-飞书手机消息 → 本机出站长连接 → dsh 原会话 → 飞书结果卡片
-```
+1. 使用装有 Feishu SDK 的 Python 打开 GUI。macOS/Linux 可先在独立虚拟环境中准备依赖：
 
-沿用该会话的上下文、模型和工作目录，消息与回答写回同一个会话。连接由本机主动建立，无需公网端口或 VPS。
+   ```bash
+   python3 -m venv ~/.local/share/notifyhub/venv
+   ~/.local/share/notifyhub/venv/bin/python -m pip install 'lark-oapi>=1.8,<2'
+   ~/.local/share/notifyhub/venv/bin/python ~/.agents/skills/notifyhub/scripts/notifyhub.py gui
+   ```
 
-### 飞书后台：事件与回调要分别设置
+2. 在 **飞书续聊**开启续聊、选择 Codex、Antigravity 或 DeepSeek Harness，并填入经过核实的使用者 `open_id`。保存后，在 macOS 点击 **启动网关**。Linux 可运行：
 
-**导入权限 JSON 后，续聊还需要配置下面两项。** 它们位于「事件与回调」页面的两个独立标签页：
+   ```bash
+   ~/.local/share/notifyhub/venv/bin/python ~/.agents/skills/notifyhub/scripts/notifyhub.py \
+     --config ~/.config/notifyhub/gateway.json gateway
+   ```
 
-| 标签页 | 订阅方式 | 添加项 | 作用 |
-|---|---|---|---|
-| **事件配置** | 使用长连接接收事件 | **接收消息** `im.message.receive_v1` | 接收你发给机器人的消息 |
-| **回调配置** | 使用长连接接收回调 | **卡片回传交互** `card.action.trigger` | 处理“继续此会话”等按钮点击 |
+3. Codex 用户保持目标会话打开，使用支持 App Server 队列和轮次读取的 CLI。DeepSeek Harness 和 Antigravity 用户在 **凭据与适配器**中点击对应的配置按钮，再重启桌面 App。 [原生续聊与迁移](integrations/dsh-native-bridge/README.md)
+4. 到飞书后台的 **事件与回调 → 事件配置**，选择 **使用长连接接收事件**并添加 `im.message.receive_v1`。如果后台要求建立连接，先启动上一步的网关。
 
-分别保存，按后台提示完成发布或审核。若提示尚未建立连接，先按下方安装说明启动 dsh 原生插件，再返回后台保存。只接收完成通知时，可以跳过这两项。
+网关统一收发飞书消息。使用时保持所选 Agent 的桌面 App 运行，权限审批仍在原 App 中处理。已有 DeepSeek Harness 托管安装可使用对应的 GUI 设置，也可切换到独立网关。 [迁移步骤](integrations/dsh-native-bridge/README.md#migrate-gateway)
 
-- [事件配置截图与步骤](references/feishu-setup.md#message-events)
-- [回调配置截图与步骤](references/feishu-setup.md#card-callbacks)
+### 配置卡片按钮
 
-截图中其他应用已订阅的消息已读、表情回应、会议和纪要事件，**无需照搬**；notifyhub 当前续聊只需要上表中的消息事件和按钮回调。
+续聊卡片默认显示操作按钮。在飞书后台的 **事件与回调 → 回调配置**选择 **使用长连接接收回调**，添加 **卡片回传交互** `card.action.trigger`，按后台提示发布。回到 GUI 的 **飞书续聊**确认 **在续聊卡片中显示操作按钮**已勾选。更改开关后保存并重载网关。由 DeepSeek Harness 托管时，保存后重启桌面 App。
 
-### 配置入口
+发 **帮助**获取新的菜单卡片，再检查按钮。也可以发 **会话**，回复列表里的序号继续。旧卡片需要重新获取。普通完成通知是结果摘要，按钮入口出现在续聊的菜单、会话列表和结果卡片上。 [带截图的按钮配置步骤](references/feishu-setup.md#card-callbacks)
 
-1. 在[飞书配置教程](references/feishu-setup.md)中完成“续聊”部分：导入完整 `bot-config.json`、订阅消息事件；需要按钮时再订阅卡片回调。
-2. 在 GUI 的“飞书续聊”卡片安装；手动安装和可靠性说明见 **[原生续聊安装说明](integrations/dsh-native-bridge/README.md#installation)**。
-3. 在 `bridge.allow_open_ids` 中填写经过核实的本人 `open_id`，再启用续聊。列表为空时拒绝所有人。
-4. 重启 dsh，在飞书发“DSH会话”，选择目标对话，再发送消息。
+### 飞书命令
 
-原生插件的 Python 子进程只负责飞书收发。旧的 `bridge start` / launchd headless 方案保留供开发排查，使用原生续聊时请停用该旧服务，避免同时消费飞书事件。
+- **帮助**、**命令**、**菜单**、`help`、`command`、`/help`、`/command` 打开菜单。
+- **会话**或 `/sessions` 列出当前 Agent 的会话。用 **Codex会话**、**Antigravity会话**或 **DSH会话**切换入口。
+- 点击 **继续此会话**，或回复序号、发送 `/attach 2` 选中本页第 2 条。用 **上一页**和 **下一页**翻页。
+- **状态**或 `/status` 查看当前绑定。选中会话后，直接发送想继续聊的内容。
 
-### 飞书命令速查
+<a id="google-antigravity实验性"></a>
+Antigravity 的飞书输入通过托管 Sidecar 送入桌面会话，桌面可能以 `Message from System` 展示。回复会匹配该轮输入。目标会话至少完成一轮后会出现在列表中。
 
-这些命令发给飞书机器人，不需要在终端执行。只安装完成通知时，机器人只负责发送通知。
+<a id="updates"></a>
+## 更新 NotifyHub
 
-第一次使用可发 **帮助**（也可以发 **菜单** 或 `/help`），打开续聊菜单。启用卡片回调后，可以直接点已启用的 **DSH 会话**、**Codex 会话** 和 **当前会话**。会话列表和结果卡片上的 **使用帮助** 也能打开菜单。
+GUI 的 **运行与更新**会检查带完整 Skill 包的正式版本。发现新版时，页头会出现提示。从这里可查看 GitHub 发布说明，也可安装更新。安装会校验 SHA-256，并备份现有 Skill。更新后重新打开 GUI，按正在使用的接入方式重载网关或桌面适配器。
 
-| 发送什么或点哪里 | 操作 |
-|---|---|
-| **帮助**、**命令**、**菜单**、`help`、`command`、`/help` 或 `/command` | 查看命令和用法，打开常用操作菜单 |
-| **会话** 或 `/sessions` | 列出当前 agent 的主会话。只开启一种续聊时，默认使用该 agent；两种都开启时，首次连接默认是 dsh |
-| **DSH会话** | 切到 dsh，列出桌面历史会话 |
-| **Codex会话** | 切到 Codex，列出本地 Codex 会话。需在 GUI 启用 Codex 续聊 |
-| **继续此会话**、回复 `2` 或发送 `/attach 2` | 选择本页第 2 条（按钮直接绑定所在卡片的会话） |
-| **下一页** / **上一页** | 翻页，或点击卡片上的分页按钮 |
-| **状态** 或 `/status` | 查看当前绑定的会话 |
-| 直接发送问题 | 在当前选定 agent 的已绑定会话里续聊 |
-| **切回此会话** | 从回答卡片重新绑定生成该回答的会话 |
-
-例如，发 **Codex会话**，选一条会话，再发“请概括刚才的进展”。想回到 dsh 时，发 **DSH会话**并选择目标。回复序号须在列表发出后 5 分钟内操作；旧按钮失效时重新发送会话列表命令。
-
-当前每个会话允许一条未完成的手机请求。需要权限审批时，仍在桌面 dsh 处理。按钮在 15 分钟后或传输进程重启后失效，发“会话”获取新卡片即可。
-
-完成通知、原会话续写和按钮切换已做过本机真机验证；历史会话恢复与分页已有自动化测试，完整真机验收仍在推进。运行接口核对版本为 dsh **0.2.2-rc.5**。
-
-## 手机续聊 Codex（实验性）
-
-使用独立 NotifyHub 网关时，保持目标 Codex 桌面会话打开。原有 dsh 插件承载收发的安装也可迁移到下方的独立网关。
-
-1. 在 notifyhub GUI 打开 **飞书续聊** 卡片，勾选 **Codex 续聊**。也可按需勾选 **dsh 续聊**。应用设置后重启 dsh。
-2. 与机器人私聊，发 **Codex会话**，点选或回复序号绑定本地会话。
-3. 直接发送文字。机器人确认入队后，由 Codex 原会话处理。审批仍在 Codex 界面完成。
-4. 发 **DSH会话** 可切回 dsh。
-
-首版通过 Codex 的实验性 App Server 队列协议提交输入，按消息 ID 匹配原轮次，并在 Codex 写入完成时间后回传结果。需要本机 CLI 支持队列及轮次读取接口；已核对的 CLI 版本为 0.155.1。每个会话允许一条未完成的手机请求。重启桥接后，请重新选择 Codex 入口，并在 Codex 中查看重启前仍在运行的请求。若同时安装了普通 Codex 完成通知 hook，可能收到原有的完成通知和续聊结果各一条。
-
-相关接口见 [OpenAI CLI 参考](https://learn.chatgpt.com/docs/cli/reference)和 [Codex App Server](https://learn.chatgpt.com/docs/app-server)。
-
-
-## 独立 NotifyHub 网关（macOS）
-
-独立网关统一持有飞书长连接。Codex 直接连接自己的本机接口，Antigravity 通过其托管 Sidecar 接收输入，dsh 通过本地适配器接入。使用某个 agent 时，保持对应的应用运行。
-
-配置使用 `~/.config/notifyhub/gateway.json`，在 GUI 已保存的飞书凭据基础上填写 `bridge.allow_open_ids`，并设置 `bridge.enabled=true`。通过 `bridge.codex_enabled`、`bridge.antigravity_enabled`、`bridge.dsh_enabled` 独立选择入口。Antigravity 的安装命令也可生成这份配置。
+也可以让 Agent「用 NotifyHub Skill 检查更新」，或者直接说「把 NotifyHub 更新到最新版」。 [Skill 更新流程](SKILL.md#update-the-skill)
 
 ```bash
-python3 scripts/notifyhub.py --config ~/.config/notifyhub/gateway.json install-gateway
+python3 ~/.agents/skills/notifyhub/scripts/notifyhub.py update
+python3 ~/.agents/skills/notifyhub/scripts/notifyhub.py update --apply
 ```
 
-在 macOS 上，该命令注册登录时启动的 `com.notifyhub.gateway` 服务。其他 Unix 系统可用 `gateway` 命令前台运行。续聊目前按实验性功能提供。
-
-迁移现有 dsh 安装时，在 dsh 插件所引用的配置中设置 `bridge.gateway_enabled=true`，再重载插件。它将转为本地适配器。同一个机器人只保留一个飞书接收进程，旧接收进程退出后再启动网关。该操作保留会话库和请求记录。
-
-## Google Antigravity（实验性）
-
-仅安装完成通知：
-
-```bash
-python3 scripts/notifyhub.py install-antigravity
-```
-
-在 NotifyHub 配置中保存飞书凭据和经过核实的 `bridge.allow_open_ids` 后，启用独立的 Antigravity 续聊：
-
-```bash
-python3 scripts/notifyhub.py install-antigravity --continuation
-python3 scripts/notifyhub.py --config ~/.config/notifyhub/gateway.json install-gateway
-```
-
-NotifyHub 网关负责飞书收发，Antigravity 的 Sidecar 负责向原会话发消息，共享 `gateway.json` 配置。保持 Antigravity 桌面 App 运行。先在 Antigravity 的目标会话完成一轮对话，随后在飞书私聊发 **Antigravity会话**，点选或回复序号绑定，再直接发送消息。**帮助** 菜单也会显示 Antigravity 入口。
-
-同一个飞书机器人只保留一个 NotifyHub 网关接收消息，多个 agent 共用它。
-
-列表会展示安装后通过 Stop hook 识别的会话。手机输入通过官方 Sidecar 发回原会话，桥接按发送前的记录位置与输入内容匹配回答，消息正文保留原文。官方接口会在桌面将输入显示为系统消息。每个会话同时处理一条手机请求。若入队后回执不明确，先回桌面查看该轮，或选择其他会话。Antigravity 的审批和工作区配置仍由桌面端控制。
-
-参考 [Hooks](https://antigravity.google/docs/hooks/) 和 [Sidecars](https://antigravity.google/docs/sidecars/)。
+通过 Git 使用源码时，将工作区更新到所需版本后重新打开 GUI。通过其他路径运行独立网关的旧安装，可以从新 Skill 的 **飞书续聊**页重载网关，使服务引用当前 Skill。
 
 <a id="faq"></a>
 ## 常见问题
 
-| 现象 | 先检查什么 |
-|---|---|
-| 测试卡片发不出去 | 机器人能力、应用身份发消息权限、应用发布状态、接收人 |
-| 自动获取接收人失败 | 应用信息权限；也可以手动填写核实过的 `open_id` |
-| 通知正常，发消息却没回复 | 原生插件是否启用；消息读取权限和 `im.message.receive_v1` 是否配置 |
-| 按钮无响应 | **回调配置**中是否添加 `card.action.trigger` 并使用长连接 |
-| 重启后旧按钮失效 | 发“会话”获取新卡片 |
-| 飞书有消息，dsh 没执行 | 是否有未完成请求或桌面审批等待；检查原会话状态 |
+- **飞书有通知，发消息没回应**
+  检查网关、私聊 `open_id` 白名单和接收消息事件。保持目标桌面 App 运行。
+- **收到卡片但没按钮**
+  向机器人发 **帮助**获取续聊菜单，检查 GUI 的按钮开关是否已生效，并核对独立的 `card.action.trigger` 回调订阅。
+- **通知晚到或漏发**
+  在 **运行与更新**查看发件箱，或执行 `python3 scripts/notifyhub.py flush --status` 检查单条记录。 [发送与补发排障](references/troubleshooting.md)
+- **DeepSeek Harness 找不到 CLI**
+  优先检查桌面自带 CLI，其次安装官方 npm CLI。 [CLI 安装说明](references/dsh.md#missing-cli)
 
-开发分支的通知网关带有发件箱，可用 `python3 scripts/notifyhub.py flush --status` 查看积压。原生续聊的结果发送使用独立记录，发送结果不明确时不会盲目重发。具体重试行为以所安装版本为准，详见[排障文档](references/troubleshooting.md)。
-
-## 文档与开发
-
-| 文档 | 内容 |
-|---|---|
-| [飞书机器人配置](references/feishu-setup.md) | 从创建应用到权限、订阅和测试 |
-| [配置参考](references/config.md) | 配置项和通知渠道 |
-| [DSH 通知集成](references/dsh.md) | desktop / web profile 与插件安装 |
-| [原生续聊](integrations/dsh-native-bridge/README.md) | 安装、接口、可靠性边界与验收 |
-| [排障](references/troubleshooting.md) | 凭据、网络、hook 与通知问题 |
-| [Agent 安装指引](SKILL.md) | 完成通知的 agent 辅助安装流程 |
-| [变更记录](CHANGELOG.md) · [交接记录](HANDOFF.md) | 开发历史和已知问题 |
+## 开发
 
 ```bash
-# 在所需 Python 版本和 Node.js 可用的环境中运行
 sh scripts/selftest.sh
+python3 scripts/build_skill.py
 ```
 
-本地运行会读取 agent 的会话数据并发送所选内容到飞书；配置文件和会话备份留在本机。续聊沿用原会话的执行权限，请仅将自己的飞书身份加入允许列表。
+构建产物是 `dist/notifyhub-skill.zip` 和 `dist/notifyhub-skill.zip.sha256`。正式更新通道读取同一版本标签下的这两个 GitHub Release 资产。 [变更记录](CHANGELOG.md) · [品牌素材来源](assets/agents/README.md)
 
-**作者** · [oldtommmy](https://github.com/oldtommmy)
-
-**协作者** · OpenAI Codex
-
-**MIT License** · [查看许可证](LICENSE)
+作者 **oldtommmy**　·　协作者 **OpenAI Codex、Google Antigravity**　·　[MIT](LICENSE)

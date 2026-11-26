@@ -169,6 +169,10 @@ def _replay_outbox_locked(config, logger, limit=None):
             logger.info("outbox entry already handled; removed without resending")
             continue
         channels = entry.get("channels") or []
+        queued_at = entry.get("created_at")
+        if isinstance(queued_at, (int, float)):
+            delayed_at = datetime.fromtimestamp(queued_at).astimezone().strftime("%m-%d %H:%M:%S %Z")
+            notification.extra_lines.append(f"延迟补发 · 首次发送失败于 {delayed_at}")
         results = _dispatch_locked(
             notification,
             config,

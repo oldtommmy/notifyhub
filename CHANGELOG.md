@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Skill distribution and settings
+
+- Install NotifyHub as one Skill, with dsh adapters bundled for local setup.
+- Check for stable Skill updates and install verified archives from the GUI or CLI.
+- Manage notification channels, agent settings, continuation and delivery status
+  through a tabbed workspace. Configure card callbacks for the independent gateway
+  using the same continuation form.
+
 ### Added
 
 - GUI desktop installer now offers notification-only or notification plus native

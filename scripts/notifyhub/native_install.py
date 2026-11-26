@@ -8,8 +8,9 @@ import sys
 import uuid
 from pathlib import Path
 
-from . import dsh_install
+from . import dsh_install, gateway_install, installer
 from .config import load_config
+from .runtime import BRAND_LOGOS, launcher_path
 from .state import state_lock
 
 
@@ -69,19 +70,22 @@ def _dependencies(profile):
 
 def status(config_file):
     target = native_config_path(config_file)
-    cfg = load_config(str(target)) if target.exists() else {}
-    bridge = cfg.get('bridge') or {}
+    bridge = load_config(target).get('bridge') or {}
     home = Path(os.environ.get('DSH_HOME', '~/.dsh')).expanduser()
     desktop = home / 'profiles/desktop'
     deps = _dependencies(desktop / 'cordis.patch.yml')
     unified = (desktop / 'node_modules/dsh-notifyhub/lib/native-bridge.js').is_file()
     return {'installed': unified or 'dsh-notifyhub-native-bridge' in deps,
+            'independent_gateway': target.name == 'gateway.json' or bool(bridge.get('gateway_enabled')),
+            'configured': target.exists(),
             'enabled': bool(bridge.get('enabled')),
+            'selected_engines': [name for name in gateway_install.ENGINES
+                                 if bridge.get(name + '_enabled', name == 'dsh' and bool(bridge.get('enabled')))],
             'dsh_enabled': bool(bridge.get('enabled') and bridge.get('dsh_enabled', True)),
+            'antigravity_enabled': bool(bridge.get('enabled') and bridge.get('antigravity_enabled')),
             'allow_open_ids': bridge.get('allow_open_ids', []),
             'card_actions': bool(bridge.get('card_actions')), 'codex_enabled': bool(bridge.get('enabled') and bridge.get('codex_enabled')), 'config_path': str(target),
-            'runtime_ready': _python(runtime_path()).is_file(),
-            'restart_required': True}
+            'runtime_ready': _python(runtime_path()).is_file()}
 
 
 def _write(path, content):
@@ -100,9 +104,37 @@ def _run(command, timeout=180):
     return result
 
 
+def install_gateway_adapter(config_file):
+    target = gateway_install.gateway_path(config_file)
+    if not target.exists() or not load_config(target)["bridge"].get("dsh_enabled"):
+        raise ValueError("请先在独立网关设置中选择 dsh 并保存。")
+    home = Path(os.environ.get("DSH_HOME", "~/.dsh")).expanduser()
+    profile = home / "profiles/desktop/cordis.patch.yml"
+    launcher = [sys.executable, str(launcher_path())]
+    notify_command = [*launcher, "--config", str(Path(config_file).expanduser().resolve()), "hook", "dsh"]
+    adapter_command = [*launcher, "--config", str(target), "bridge", "dsh-adapter"]
+    with state_lock(profile):
+        existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
+        _patch_profile(existing, notify_command, adapter_command, True)
+        installer._backup(profile)
+        installer._backup(profile.with_name("package.json"))
+        result = dsh_install.install("desktop")
+        if not result["ok"]:
+            return result
+        current = profile.read_text(encoding="utf-8") if profile.exists() else ""
+        _write(profile, _patch_profile(current, notify_command, adapter_command, True))
+        if "dsh-notifyhub-native-bridge" in _dependencies(profile):
+            _run([dsh_install.dsh_binary("desktop"), "plugin", "--profile", "desktop",
+                  "remove", "dsh-notifyhub-native-bridge"])
+    return {"ok": True, "restart_required": True, "message": "dsh 适配器已配置。请重启 dsh 桌面 App。"}
+
+
 def install(config_file, options, runtime=None, dsh_home=None):
     if options.get('profile', 'desktop') != 'desktop':
         return {'ok': False, 'error': '原生续聊当前仅支持 dsh 桌面版。'}
+    target = native_config_path(config_file)
+    if target.name == 'gateway.json' or (target.exists() and load_config(target)['bridge'].get('gateway_enabled')):
+        return {'ok': False, 'error': '当前使用独立网关，请按独立网关说明配置续聊。'}
     ids = options.get('allow_open_ids', [])
     if not isinstance(ids, list) or any(not isinstance(x, str) or not re.fullmatch(r'ou_[A-Za-z0-9]+', x) for x in ids):
         return {'ok': False, 'error': '请填写经过核实的 open_id，多个 ID 用逗号分隔。'}
@@ -114,7 +146,6 @@ def install(config_file, options, runtime=None, dsh_home=None):
         dsh_enabled = options.get('enabled') is True
         codex_enabled = dsh_enabled and options.get('codex_enabled') is True
     enabled = dsh_enabled or codex_enabled
-    cards = options.get('card_actions') is True
     if enabled and not ids:
         return {'ok': False, 'error': '启用续聊前请填写允许使用者的 open_id。'}
     source_config = load_config(config_file)
@@ -131,7 +162,6 @@ def install(config_file, options, runtime=None, dsh_home=None):
     runtime = Path(runtime) if runtime else runtime_path()
     home = Path(dsh_home) if dsh_home else Path(os.environ.get('DSH_HOME', '~/.dsh')).expanduser()
     profile = home / 'profiles/desktop/cordis.patch.yml'
-    target = native_config_path(config_file)
     command = [str(_python(runtime)), str(runtime / 'scripts/notifyhub.py'), '--config', str(target), 'bridge', 'native-transport']
     try:
         with state_lock(runtime / 'installer'):
@@ -148,7 +178,18 @@ def install(config_file, options, runtime=None, dsh_home=None):
                 shutil.copytree(runtime / 'scripts', backup / 'scripts', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             if (runtime / 'integrations').exists():
                 shutil.copytree(runtime / 'integrations', backup / 'integrations', ignore=shutil.ignore_patterns('node_modules', '__pycache__'))
-            shutil.copytree(scripts, runtime / 'scripts', dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            if scripts.resolve() != (runtime / 'scripts').resolve():
+                shutil.copytree(scripts, runtime / 'scripts', dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            for name in BRAND_LOGOS:
+                logo = scripts.parent / 'assets' / name
+                installed_logo = runtime / 'assets' / name
+                if logo.is_file() and logo.resolve() != installed_logo.resolve():
+                    if installed_logo.is_file():
+                        previous_logo = backup / 'assets' / name
+                        previous_logo.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(installed_logo, previous_logo)
+                    installed_logo.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(logo, installed_logo)
             python = _python(runtime)
             if not python.is_file():
                 _run([sys.executable, '-m', 'venv', str(runtime / '.venv')])
@@ -167,7 +208,9 @@ def install(config_file, options, runtime=None, dsh_home=None):
                 raise RuntimeError('安装期间 desktop 配置发生变化，未覆盖新配置；请刷新后重试。')
             native = load_config(str(target)) if target.exists() else source_config
             native['channels']['feishu_app'] = dict(app)
-            native.setdefault('bridge', {}).update(enabled=enabled, allow_open_ids=list(dict.fromkeys(ids)), default_agent='dsh', card_actions=cards,
+            bridge = native['bridge']
+            bridge.update(enabled=enabled, allow_open_ids=list(dict.fromkeys(ids)), default_agent='dsh',
+                card_actions=options.get('card_actions', bridge['card_actions']) is True,
                 dsh_enabled=dsh_enabled, codex_enabled=codex_enabled)
             # Keep ledgers and session bindings untouched; neither process is restarted here.
             _write(target, json.dumps(native, ensure_ascii=False, indent=2))

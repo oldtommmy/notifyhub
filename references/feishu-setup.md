@@ -19,7 +19,7 @@ python3 scripts/notifyhub.py gui
 
 保持终端运行，在打开的页面里准备填写凭据。如果浏览器未自动打开，访问命令打印的完整地址。随后按下面步骤创建飞书应用，再回到 GUI 保存配置和发送测试卡片。
 
-**GUI 与长连接是两件事**：GUI 是本地通知配置界面；dsh 原生插件启动后才会建立续聊使用的飞书长连接。后台如提示“应用尚未建立长连接”，需要先配置并运行原生插件，反复打开 GUI 不会解决该提示。
+GUI 用于在本机配置通知和续聊。飞书长连接由启动后的独立网关或现有 dsh 托管续聊进程建立。后台如提示「应用尚未建立长连接」，打开 GUI 的 **飞书续聊**并启动已配置的网关。 [网关安装](../README.md#gateway)
 
 ## 1. 创建企业自建应用
 
@@ -66,7 +66,7 @@ notifyhub 使用应用的 `tenant_access_token`，当前通知和续聊流程不
 python3 scripts/notifyhub.py gui
 ```
 
-新配置默认使用 `open_id`。接收人为空时，填完 App ID 和 App Secret，GUI 会自动查找应用所有者；已有接收人会保留。可点击“获取接收人”重试。获取失败时，检查应用信息权限，或手动填写核实过的接收人。使用其他接收人类型时，先在下拉菜单选择对应类型。
+新配置默认使用 `open_id`。接收人为空时，填完 App ID 和 App Secret，GUI 会自动查找应用所有者。已有接收人会保留。可点击“获取接收人”重试。获取失败时，检查应用信息权限，或手动填写核实过的接收人。使用其他接收人类型时，展开 **接收类型与消息格式**，再选择对应类型。
 
 | 接收人类型 | 示例格式 | 发送目标 |
 |---|---|---|
@@ -76,19 +76,19 @@ python3 scripts/notifyhub.py gui
 
 `open_id` 与应用有关，不能随意复用其他应用下的值。不要把 `ou_…` 配成 `chat_id`。获取失败时先核对 ID 来源，不要猜测。
 
-保存后发测试卡片，也可以在命令行执行：
+在 **通知渠道 → 飞书应用机器人**中勾选 **启用应用机器人通知**，保存配置，再点 **测试当前渠道**。也可以在命令行执行：
 
 ```bash
 python3 scripts/notifyhub.py test --channel feishu_app
 python3 scripts/notifyhub.py doctor
 ```
 
-确认成功后，回到 [README](../README.md#quick-start) 安装对应 agent 的通知 hook 或插件。
+确认成功后，在 **Agent 接入**安装对应的通知接入。 [快速开始](../README.md#quick-start)
 
 <a id="message-events"></a>
 ## 5. 续聊：订阅单聊消息
 
-这部分用于 dsh 原生续聊插件（实验性，随 `main` 提供）。配置长连接前，先按[原生插件说明](../integrations/dsh-native-bridge/README.md#installation)准备本地运行环境。飞书后台如提示需要先建立连接，启动 dsh 中已配置的原生插件后再保存。
+这一步适用于 dsh、Codex 和 Antigravity 续聊。飞书后台如提示需要先建立连接，请先启动已配置的独立网关或 dsh 桌面插件，再保存订阅。 [独立网关](../README.md#gateway) · [dsh 托管续聊](../integrations/dsh-native-bridge/README.md#installation)
 
 在应用后台的 **事件与回调 → 事件配置**：
 
@@ -106,7 +106,7 @@ python3 scripts/notifyhub.py doctor
 
 </details>
 
-长连接由本机主动连接飞书。机器需要联网；原生续聊还要求 dsh App 持续运行、Mac 保持唤醒。
+长连接由本机主动连接飞书。保持机器联网、唤醒，并保持所选 Agent 的桌面 App 运行。
 
 <a id="card-callbacks"></a>
 ## 6. 按钮：配置卡片回调
@@ -116,20 +116,21 @@ python3 scripts/notifyhub.py doctor
 1. 订阅方式选择 **使用长连接接收回调**。
 2. 添加 **卡片回传交互**：`card.action.trigger`。
 3. 保存，并按后台提示完成发布或审核。
-4. 在原生续聊使用的独立配置中设置 `bridge.card_actions=true`，重启 dsh 加载配置。
+4. 在 NotifyHub GUI 的 **飞书续聊**确认 **在续聊卡片中显示操作按钮**已勾选。按钮默认开启。更改开关后点击 **保存续聊设置**，再重载独立网关或重启托管续聊的 dsh。
+5. 在飞书发送 **帮助**或 **会话**，从新卡片检查按钮。已有的卡片保留发送时的内容。
 
-注意选择新版 `card.action.trigger`，而非旧版 `card.action.trigger_v1`。官方说明见[接收并处理回调](https://open.feishu.cn/document/event-subscription-guide/callback-subscription/receive-and-handle-callbacks)。
+选择当前版本的 `card.action.trigger`。 [飞书回调订阅说明](https://open.feishu.cn/document/event-subscription-guide/callback-subscription/receive-and-handle-callbacks)
 
 <details>
 <summary>查看「回调配置」截图</summary>
 
 ![飞书回调配置：使用长连接接收回调，添加卡片回传交互](../assets/feishu-callbacks-setup.png)
 
-与「事件配置」分别设置。确认本标签页下已出现 **卡片回传交互 `card.action.trigger`**，只在事件标签页添加“接收消息”不会启用按钮。
+「事件配置」用于接收消息。本页的「回调配置」用于接收按钮操作。检查回调列表中是否有 **卡片回传交互 `card.action.trigger`**。
 
 </details>
 
-原生插件的按钮默认关闭，未订阅回调时继续使用回复序号选择会话。启用后可点击“继续此会话”“刷新列表”“当前会话”；结果卡片还能“切回此会话”。
+续聊的菜单、会话选择和结果卡片支持交互。普通完成通知用于显示摘要。使用序号或 `/attach 2` 可以直接选择最近列表中的会话。
 
 ## 7. 检查整条链路
 
@@ -144,7 +145,8 @@ python3 scripts/notifyhub.py doctor
 |---|---|
 | `99991672` / 缺少权限 | 实际调用接口所需的应用身份权限是否已生效 |
 | `230001` / 接收人无效 | ID 类型、值及其所属应用是否匹配 |
-| 能发通知，不能收消息 | 消息读取权限、消息事件订阅、原生插件及允许列表 |
+| 能发通知，不能收消息 | 网关连接、消息读取权限、事件订阅及续聊允许列表 |
+| 新卡片没有按钮 | 发送「帮助」确认收到续聊菜单，检查按钮开关是否已保存并重载 |
 | 点击按钮超时或无响应 | 卡片回调是否单独添加，订阅方式是否为长连接 |
 | 旧按钮提示失效 | 发“会话”获取新卡片；按钮在 15 分钟后或进程重启后失效 |
 

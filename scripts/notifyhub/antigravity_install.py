@@ -19,7 +19,8 @@ def install(config_file, continuation=False):
         if not source.get("bridge", {}).get("allow_open_ids") and previous.exists():
             old = load_config(str(previous)).get("bridge", {})
             source.setdefault("bridge", {})["allow_open_ids"] = old.get("allow_open_ids", [])
-            source["bridge"]["card_actions"] = old.get("card_actions", False)
+            if not target.exists():
+                source["bridge"]["card_actions"] = old["card_actions"]
         bridge = source.setdefault("bridge", {})
         app = source.get("channels", {}).get("feishu_app", {})
         if not bridge.get("allow_open_ids") or not app.get("app_id") or not app.get("app_secret"):
@@ -30,12 +31,20 @@ def install(config_file, continuation=False):
         installer._write(target, source)
 
     ensure_config(str(config_file))
-    result = installer.install_target("antigravity", ["Stop"], hook_command(config_file, "antigravity"))
-    print(f"Antigravity Stop hook 已安装：{result['path']}")
     if not continuation:
+        result = installer.install_target("antigravity", ["Stop"], hook_command(config_file, "antigravity"))
+        print(f"Antigravity Stop hook 已安装：{result['path']}")
         return 0
+    configure_sidecar(config_file, target)
+    print("Antigravity Sidecar 已配置。启动独立 NotifyHub gateway 后发「Antigravity会话」。")
+    return 0
 
-    root = result["path"].parent
+
+def configure_sidecar(config_file, target):
+    config_file = Path(config_file).expanduser().resolve()
+    target = Path(target).expanduser().resolve()
+    installer.install_target("antigravity", ["Stop"], hook_command(config_file, "antigravity"))
+    root = installer.target_path("antigravity").parent
     settings_path = root / "config.json"
     settings = installer._read_antigravity(settings_path)
     sidecar = root / "sidecars" / "notifyhub" / "sidecar.json"
@@ -46,14 +55,10 @@ def install(config_file, continuation=False):
         "args": [str(launcher_path()), "--config", str(target), "antigravity-sidecar"],
         "restart_policy": "on-failure",
     })
-    for path, section, key in ((config_file, "antigravity", "track_sessions"),
-                               (target, "bridge", "antigravity_enabled")):
-        raw = installer._read_antigravity(path)
-        installer._backup(path)
-        raw.setdefault(section, {})[key] = True
-        installer._write(path, raw)
+    raw = installer._read_antigravity(config_file)
+    installer._backup(config_file)
+    raw.setdefault("antigravity", {})["track_sessions"] = True
+    installer._write(config_file, raw)
     installer._backup(settings_path)
     settings.setdefault("sidecars", {}).setdefault("notifyhub", {})["enabled"] = True
     installer._write(settings_path, settings)
-    print("Antigravity Sidecar 已配置。启动独立 NotifyHub gateway 后发「Antigravity会话」。")
-    return 0

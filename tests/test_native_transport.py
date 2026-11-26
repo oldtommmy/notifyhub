@@ -1,4 +1,5 @@
 import logging
+from queue import Empty
 import unittest
 from types import SimpleNamespace as NS
 from unittest.mock import patch
@@ -10,6 +11,10 @@ from notifyhub.channels import feishu_app
 
 
 class NativeTransportTests(unittest.TestCase):
+    def test_plain_ack_with_explicit_null_view_keeps_reply_worker_alive(self):
+        transport = NativeTransport({'bridge': {}}, logging.getLogger('test'), lambda frame: None)
+        transport.receipt({'type': 'reply', 'message_id': 'phone', 'key': 'accepted', 'view': None}, 'delivered')
+
     def setUp(self):
         self.frames = []
         self.transport = NativeTransport({'channels': {'feishu_app': {}}, 'bridge': {}}, logging.getLogger('test'), self.frames.append)
@@ -17,6 +22,25 @@ class NativeTransportTests(unittest.TestCase):
     def test_unknown_destination_is_rejected(self):
         self.transport.enqueue({'type': 'reply', 'message_id': 'unseen'})
         self.assertTrue(self.transport.outbound.empty())
+
+    def test_recovered_antigravity_result_can_sign_card_after_gateway_restart(self):
+        transport = self.transport
+        transport.buttons_enabled = True
+        response = {'type': 'reply', 'message_id': 'om_phone', 'request_id': 'om_phone', 'chat_id': 'oc_original',
+                    'key': 'result', 'view': {'type': 'result', 'engine': 'Antigravity', 'ok': True,
+                                              'text': 'done', 'session': {'id': 'session', 'title': 'test'}}}
+        with patch.object(transport.outbound, 'get', side_effect=[Empty, StopIteration]), \
+                patch.object(transport.antigravity, 'take_result', return_value=response), \
+                patch.object(transport.antigravity, 'receipt') as receipt, \
+                patch.object(feishu_app, 'reply_card') as reply:
+            with self.assertRaises(StopIteration):
+                transport._send_loop()
+
+        self.assertFalse(transport.targets)
+        self.assertEqual(reply.call_args.args[0], 'om_phone')
+        actions = next(element['actions'] for element in reply.call_args.args[1]['elements'] if element['tag'] == 'action')
+        self.assertTrue(transport.actions.verify(actions[0]['value'], 'oc_original'))
+        receipt.assert_called_once_with('om_phone', 'delivered')
 
     def test_inbound_roundtrip_keeps_message_identity(self):
         self.transport.inbound(kind='agent', payload=['dsh', '继续'], message_id='om_1', chat_id='oc_1', sender_id='ou_1', chat_type='p2p')

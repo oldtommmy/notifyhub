@@ -1,245 +1,65 @@
-# DeepSeek Harness (dsh)
+# DeepSeek Harness
 
-`notifyhub` ships a bundle plugin at `integrations/dsh/`. It runs inside the
-DeepSeek Harness host, listens to the persisted `session/event` stream, and on
-`turn/end` calls the bundled notifyhub CLI with a normalized payload. The same
-Feishu configuration and card renderer used by Codex are reused.
+Install the full NotifyHub Skill for dsh, then use the local GUI to configure it. The Skill includes the dsh adapter required to receive desktop lifecycle events and continue the owning session. It uses the same notification settings, state, and release as the other agents.
+
+```bash
+python3 scripts/notifyhub.py install-skill --host dsh
+python3 ~/.dsh/skills/notifyhub/scripts/notifyhub.py gui
+```
+
+The installer prints the resolved location, including when `DSH_HOME` is set. dsh also discovers the shared `~/.agents/skills` directory. [DeepSeek Harness Skill discovery](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/skills.md#local-discovery-priority)
 
 <a id="missing-cli"></a>
-## CLI missing: resolve installation before installing the plugin
+## Resolve a missing dsh CLI
 
-When the user has selected dsh integration, the installing agent should continue
-through CLI setup instead of ending at “dsh not found”.
+The installer can discover the CLI bundled with the desktop app. It checks system and user Applications on macOS. Set `NOTIFYHUB_DSH_BIN` to use a custom executable and reopen the GUI after changing the environment.
 
-The GUI and CLI installer now discover the bundled desktop CLI automatically
-(in system or user Applications on macOS); desktop installs prefer it over a
-separate npm CLI. `NOTIFYHUB_DSH_BIN` can select a custom executable. Restart
-the notifyhub GUI after updating the installation or changing that variable.
-
-1. Run `command -v dsh` (Windows: `where dsh`) and `dsh --version`.
-2. On macOS with the desktop App installed, check its bundled CLI first:
+1. Check `command -v dsh` (Windows: `where dsh`) and `dsh --version`.
+2. If dsh Desktop is installed on macOS, verify the bundled CLI:
 
    ```bash
    "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" --version
    ```
 
-   If it works, temporarily prepend its `bin` directory to PATH for subsequent
-   installer commands. Keep the desktop runtime/profile instead of downloading
-   a second version just because the shell did not find the executable.
-3. If no CLI is available, check Node.js/npm. If missing, guide installation
-   from [Node.js](https://nodejs.org/en/download); then query the current package
-   requirements and install the [official dsh package](https://www.npmjs.com/package/@deepseek-ai/dsh):
+3. If no CLI is available, check Node.js and npm, then install and verify the official CLI. [Node.js downloads](https://nodejs.org/en/download) · [Official dsh CLI package](https://www.npmjs.com/package/@deepseek-ai/dsh)
 
    ```bash
    node --version
-   npm --version
    npm view @deepseek-ai/dsh engines --json
    npm install -g @deepseek-ai/dsh
    dsh --version
    ```
 
-4. If global installation is unavailable, use `npx @deepseek-ai/dsh --version`
-   to verify the npm entry point and its explicit `plugin --profile …` commands.
-   A successful npx invocation does not mean `dsh` was added to PATH. Diagnose
-   PATH/global-prefix problems before using the Python installer's CLI lookup.
-5. Once verified, continue with the actual desktop/web profile below. Only
-   dsh users need this dependency; do not install it for Codex-only notification
-   setup. Do not fall back to headless for desktop native continuation.
+4. When global npm installation is unavailable, `npx @deepseek-ai/dsh --version` verifies the npm entry point. Add an accessible CLI or set `NOTIFYHUB_DSH_BIN` before using the GUI installer.
 
-## Install
+## Set up the local adapter
 
-DSH Desktop and `dsh web` use different profiles. Install into the one the host
-actually uses.
+In **Agent 接入**, select **dsh** and **桌面版** or **Web**, then install the adapter and restart that host. Use the profile where the user actually runs dsh.
 
-### Desktop app
-
-The DeepSeek Harness Electron app runs the `desktop` profile. Install there:
+If dsh reports that the desktop profile needs initialization, open the desktop app once, quit it fully, and retry the installer.
 
 ```bash
 python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile desktop
-```
-
-Then quit and reopen **DeepSeek Harness.app**. The plugin row is carried by the
-bundle patch; `dsh --profile desktop --dump-config` deliberately refuses with
-"profile desktop is managed exclusively by the Electron application" — that is
-expected, not a failure. Check `~/.local/state/notifyhub/dsh-plugin.log` for
-`loaded` after restart.
-
-The app's official install path is **Settings → Plugins** (the app's plugin
-manager / `dshmarket`). The CLI `install-dsh --profile desktop` writes the
-profile directly and works after a restart, but the app owns that profile and a
-major app update may reset it. Prefer the app panel when it accepts the plugin;
-use `install-dsh` as the local/development path.
-
-### CLI / web
-
-With `dsh` on `PATH`:
-
-```bash
 python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile web
 ```
 
-Or manually:
+For Feishu continuation with the independent gateway, select **DeepSeek Harness** in **飞书续聊** and save. Open **凭据与适配器** and click **配置 dsh 适配器**. Restart dsh Desktop when its current task finishes. The CLI equivalent is:
 
 ```bash
-dsh plugin --profile web add link:"$SKILL_ROOT/integrations/dsh"
+python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile desktop --continuation
 ```
 
-Install the published bundle from DSH Market or [GitHub Releases](https://github.com/oldtommmy/notifyhub/releases/latest):
+If an older Market install is present, apply the adapter from the current Skill to switch its source to the local bundled copy. This keeps the dsh package identity and sessions. For an old dsh-hosted Feishu receiver, use the [gateway migration steps](../integrations/dsh-native-bridge/README.md#migrate-gateway).
 
-```bash
-dsh plugin --profile desktop add https://github.com/oldtommmy/notifyhub/releases/latest/download/dsh-notifyhub.tgz
-```
+For Windows notifications, use `python` instead of `python3`. If only the Windows Python launcher is available, set `NOTIFYHUB_PYTHON` to the actual Python interpreter path so the adapter can spawn it directly.
 
-The published package bundles the Python launcher under `scripts/`. Use
-`link:` for a local checkout. The unified bundle provides notifications in
-web and desktop profiles. Use the GUI's **飞书续聊** card to enable continuation
-in the desktop profile and migrate from the older separate bridge plugin.
+## Notification content
 
-Restart `dsh web` after installing a bundle. For one-off/headless runs, install
-the plugin into the headless profile as well:
-
-```bash
-python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile headless
-```
-
-If `dsh` is not installed, the command prints the equivalent
-`npx @deepseek-ai/dsh plugin ...` command.
-
-### Windows
-
-The same commands work with `python` instead of `python3`:
-
-```powershell
-python "$env:SKILL_ROOT\scripts\notifyhub.py" install-dsh --profile desktop
-python "$env:SKILL_ROOT\scripts\notifyhub.py" install-dsh --profile web
-```
-
-The plugin defaults to `python` on Windows. If Python is not on `PATH` (or only
-the `py` launcher is available), set the plugin row's `config.command` to:
-
-```yaml
-command: ["py", "-3", "C:/path/to/notifyhub/scripts/notifyhub.py", "hook", "dsh"]
-```
-
-Use forward slashes in the launcher path. The plugin's default launcher
-resolution and `spawn` are cross-platform; `windowsHide` is set so no console
-window flashes.
-
-## What the plugin sends
-
-On `turn/end`, the host plugin reads:
-
-- `session.id`
-- `session.header.cwd`
-- `session.header.parentSession` / `delegationDepth` (subagent detection)
-- the derived messages (first user message as the session title, last user
-  message as "最近提问", last assistant message as the markdown body)
-- the latest `request/header` model when available
-- `turn/end`'s `kind`: `completed`, `error`, `aborted`, `blocked`,
-  `max-tokens`, or `interrupted`
-- `origin`: `main` or `subagent`, derived from `parentSession` / `delegationDepth`
-
-The plugin forwards every turn, including subagent turns. notifyhub's
-`dsh.include_subagents` (off by default) decides whether a subagent turn produces
-a card; the adapter maps the status to a card title, and the `dsh` section of the
-config controls the prompt/message excerpts.
-
-The card body is built from assistant `text` blocks only: `reasoning` and
-tool-call blocks never reach the card. `recent_prompt` uses the last message whose
-`source.kind` is `user`; synthetic messages (`runtime-context`, `time-context`,
-`skill-catalog`, `model-selection`, `user-approval`) are ignored. The title comes
-from the latest `session/title` event, falling back to the first real user
-message. The model comes from `request/header`'s `header.config.model`, or from
-`model/selection`.
-
-## Configuration
-
-The plugin uses the same `~/.config/notifyhub/config.json` as Codex. Relevant
-section:
-
-```json
-{
-  "dsh": {
-    "enabled": true,
-    "include_last_message": true,
-    "include_recent_prompt": true,
-    "include_subagents": false,
-    "include_session_id": false,
-    "max_message_chars": 600,
-    "max_prompt_chars": 160
-  }
-}
-```
-
-`include_subagents` is the only subagent switch. The plugin does not filter
-subagents itself; the adapter drops them unless this is `true`.
-
-To override the launcher (for example, when the plugin is installed outside the
-skill), add a config block to the patch row:
-
-```yaml
-- insert:
-    - id: dsh-notifyhub
-      name: dsh-notifyhub
-      config:
-        command: ["python3", "/absolute/path/to/notifyhub/scripts/notifyhub.py", "hook", "dsh"]
-```
-
-On Windows use `["py", "-3", "C:/.../notifyhub.py", "hook", "dsh"]` if only the
-launcher is available.
+The adapter reads dsh's persisted `session/event` stream and forwards `turn/end` to the Skill's Python hook. The configuration under `dsh` controls the content and optionally includes subagent turns. The adapter takes the title from the session title or first user message, and filters synthetic messages, reasoning and tool calls. [dsh configuration](config.md#deepseek-harness-notifications)
 
 ## Verify
 
-```bash
-# web profile: is the plugin mounted?
-dsh --profile web --dump-config | grep -B1 -A2 dsh-notifyhub
-
-# desktop app: --dump-config refuses by design; check the load marker after restart
-cat ~/.local/state/notifyhub/dsh-plugin.log
-
-# local plugin payload test
-node "$SKILL_ROOT/integrations/dsh/test.mjs"
-
-# normalized adapter preview
-printf '%s' '{"session_id":"s1","cwd":"/tmp/demo","title":"帮我跑测试","model":"deepseek-chat","recent_prompt":"再检查一下","last_assistant_message":"**已检查**","status":"completed","seq":5,"origin":"main"}' \
-  | python3 "$SKILL_ROOT/scripts/notifyhub.py" hook dsh --dry-run
-```
-
-Then run one session in the host. A Feishu card should arrive when the turn ends.
-For the desktop app, the plugin log should show `loaded`, then `turn/end`, then
-`send`; notifyhub's log should show `feishu_app delivered`.
-
-## Troubleshooting
-
-| Symptom | Cause / fix |
-|---|---|
-| Desktop app no card | It uses the `desktop` profile, not `web`. Install `--profile desktop`, quit and reopen the app. |
-| `dsh --profile desktop --dump-config` errors | Expected: the desktop profile is managed by the Electron app. Verify via the app restart + `dsh-plugin.log`. |
-| No card after a dsh turn | The bundle needs a restart: stop and start `dsh web` / the desktop app. |
-| Plugin not in `--dump-config` (web) | The `link:` path is wrong, or the bundle was not mounted. Re-run `install-dsh` and check `dsh --profile web --dump-config`. |
-| `loaded` but no `turn/end` | The host version changed its session event. Check `~/.dsh/sessions/**/session*.jsonl.zstd` for `turn/end` and report the dsh version. |
-| `turn/end` but no `send` | `config.enabled` is `false` in the plugin row, or the host changed its session event. Check the plugin log and the dsh version. |
-| `send` but no card and no `notifyhub.log` entry | The adapter dropped a subagent session. Set `dsh.include_subagents: true` in `~/.config/notifyhub/config.json`. |
-| `send` but no card and `notifyhub.log` has an error | Check the `feishu_app` credentials and network; see the Feishu troubleshooting table. |
-| Windows spawn failed / Python not found | Set the plugin `config.command` to `["py", "-3", "C:/.../notifyhub.py", "hook", "dsh"]`, or put Python on `PATH`. |
-| Duplicate card | The plugin dedupes by `session.id + seq`; check for multiple installed copies in the profile. |
-| Old card layout | Restart the dsh host; the plugin calls the current notifyhub code. |
-| App update reset the plugin | Reinstall with `install-dsh --profile desktop`; prefer the app's Settings → Plugins when it accepts the plugin. |
-
-## Remove
-
-```bash
-dsh plugin --profile web remove dsh-notifyhub
-```
-
-The dsh docs note that `remove` does not rewrite the patch layer. If the
-`dsh-notifyhub` insert row remains in `$DSH_HOME/profiles/web/cordis.patch.yml`,
-remove it manually and restart `dsh web`.
-
-## Security
-
-The plugin is plain ESM with Node built-ins only. It spawns the local notifyhub
-launcher and passes session metadata on stdin. It does not read the App Secret
-directly, does not open a network port, and does not import React or any WebGL
-code. Review `integrations/dsh/lib/index.js` before installing.
+- After restarting the desktop app, inspect `~/.local/state/notifyhub/dsh-plugin.log` for the adapter load event and activity during a turn. For Web, use `dsh --profile web --dump-config` to check the mounted adapter.
+- Test the requested notification channel in the GUI. Run a dsh turn and check that exactly one completion notification arrives.
+- For continuation, send **DSH会话** in Feishu, bind a session, and send a short prompt. Verify the reply in Feishu and the turn in the same desktop session.
+- If an app update resets its profile, reapply the local adapter from the Skill. [Further troubleshooting](troubleshooting.md)

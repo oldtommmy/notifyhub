@@ -3,12 +3,13 @@ import json
 import os
 import sys
 from pathlib import Path
+from zipfile import BadZipFile
 
-from . import __version__, dsh_install, installer
+from . import __version__, dsh_install, installer, updates
 from .adapters import get_adapter, sources
 from .channels import channels as channel_names
 from .codex_meta import find_db
-from .config import config_path, ensure_config, load_config
+from .config import config_path, deep_merge, ensure_config, load_config
 from .events import Notification
 from .log import get_logger
 from .render import render_text
@@ -67,9 +68,11 @@ def _process_hook(args):
         logger.error("invalid hook payload: %s", error)
         return 0
 
+    track_antigravity = args.source == "antigravity" and config["antigravity"].get("track_sessions") and not args.dry_run
     try:
         adapter = get_adapter(args.source)
-        notification = adapter.parse(payload, config)
+        parse_config = deep_merge(config, {"antigravity": {"enabled": True}}) if track_antigravity else config
+        notification = adapter.parse(payload, parse_config)
     except Exception as error:
         logger.exception("failed to parse hook event: %s", error)
         return 0
@@ -87,13 +90,15 @@ def _process_hook(args):
         print(render_text(notification))
         return 0
 
-    if args.source == "antigravity" and config.get("antigravity", {}).get("track_sessions"):
+    if track_antigravity:
         from .antigravity_bridge import record_stop
         try:
             if record_stop(payload, notification):
                 return 0
         except (OSError, ValueError) as error:
             logger.warning("Antigravity continuation ledger unavailable: %s", error)
+        if not config["antigravity"]["enabled"]:
+            return 0
 
     try:
         results = dispatch(notification, config, logger, force=args.force)
@@ -328,6 +333,18 @@ def cmd_gui(args):
 
 
 def cmd_install_dsh(args):
+    if args.continuation:
+        if args.profile != "desktop" or args.print_only:
+            print("续聊适配器请使用 install-dsh --profile desktop --continuation。", file=sys.stderr)
+            return 1
+        from .native_install import install_gateway_adapter
+        try:
+            result = install_gateway_adapter(_config_target(args))
+        except (OSError, RuntimeError, ValueError) as error:
+            print(f"dsh 接入失败：{error}", file=sys.stderr)
+            return 1
+        print(result["message"] if result["ok"] else result["error"])
+        return 0 if result["ok"] else 1
     plugin = dsh_install.find_plugin()
     if plugin is None:
         print("找不到 integrations/dsh，请确认 notifyhub 包完整。")
@@ -355,15 +372,65 @@ def cmd_install_dsh(args):
 
     result = dsh_install.install(args.profile)
     if not result["ok"]:
-        print(f"安装失败：{result.get('stderr') or result.get('error', '')}")
+        print(f"安装失败：{result['error']}")
         return 1
 
-    print("已安装 DSH 插件。" + ("重启 DeepSeek Harness 桌面 App 生效。" if args.profile == "desktop" else "重启 dsh web 生效。"))
+    print("已安装 dsh 本地适配器。" + ("重启 DeepSeek Harness 桌面 App 生效。" if args.profile == "desktop" else "重启 dsh web 生效。"))
     return 0
 
 
+def cmd_install_skill(args):
+    roots = {
+        "shared": Path.home() / ".agents/skills",
+        "codex": Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser() / "skills",
+        "claude": Path.home() / ".claude/skills",
+        "dsh": Path(os.environ.get("DSH_HOME", "~/.dsh")).expanduser() / "skills",
+    }
+    destination = (Path(args.skills_dir).expanduser() if args.skills_dir else roots[args.host]) / "notifyhub"
+    try:
+        result = updates.install_local(destination)
+    except (OSError, ValueError, BadZipFile) as error:
+        print(f"安装 Skill 失败：{error}", file=sys.stderr)
+        return 1
+    print(f"NotifyHub Skill {result['version']} 已安装到 {result['path']}")
+    if result["backup"]:
+        print(f"上一版本备份在 {result['backup']}")
+    print("打开对应 agent 后，调用 notifyhub Skill 开始配置。")
+    return 0
+
+
+def cmd_update(args):
+    try:
+        status = updates.check(refresh=True)
+        if args.apply and status["available"]:
+            result = updates.apply(status["latest"])
+            print(f"已安装 NotifyHub {result['version']}。请重新打开 GUI，并重载正在使用的接入进程。")
+            print(f"上一版本备份在 {result['backup']}")
+            return 0
+    except (OSError, ValueError, BadZipFile) as error:
+        print(f"更新失败：{error}", file=sys.stderr)
+        return 1
+    print(f"当前版本 {status['current']}")
+    if status["available"]:
+        print(f"可更新到 {status['latest']}，详见 {status['release_url']}")
+    elif status["offline"]:
+        print("暂时无法连接 GitHub，请稍后重试。")
+    else:
+        print("当前没有可安装的新版 Skill。")
+    return 0
+
+
+def cmd_install_gateway(args):
+    from .gateway_install import install_gateway
+    try:
+        return install_gateway(_config_target(args))
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"网关启动失败：{error}", file=sys.stderr)
+        return 1
+
+
 def build_parser():
-    parser = argparse.ArgumentParser(prog="notifyhub", description="Codex 完成通知网关")
+    parser = argparse.ArgumentParser(prog="notifyhub", description="NotifyHub 通知与飞书续聊")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--config", help="配置文件路径")
     parser.add_argument("--verbose", action="store_true")
@@ -418,8 +485,18 @@ def build_parser():
     gui.add_argument("--no-open", action="store_true")
     gui.set_defaults(func=cmd_gui)
 
-    dsh = subparsers.add_parser("install-dsh", help="安装 DeepSeek Harness 插件")
+    skill = subparsers.add_parser("install-skill", help="安装完整 NotifyHub Skill")
+    skill.add_argument("--host", choices=("shared", "codex", "claude", "dsh"), default="shared")
+    skill.add_argument("--skills-dir", help="自定义 agent 的 skills 目录")
+    skill.set_defaults(func=cmd_install_skill)
+
+    update = subparsers.add_parser("update", help="检查正式版本")
+    update.add_argument("--apply", action="store_true", help="下载并校验后更新当前 Skill")
+    update.set_defaults(func=cmd_update)
+
+    dsh = subparsers.add_parser("install-dsh", help="安装 Skill 随附的 dsh 本地适配器")
     dsh.add_argument("--profile", default="web")
+    dsh.add_argument("--continuation", action="store_true", help="把桌面适配器接到已配置的独立网关")
     dsh.add_argument("--print", action="store_true", dest="print_only")
     dsh.set_defaults(func=cmd_install_dsh)
 
@@ -432,11 +509,10 @@ def build_parser():
     sidecar.set_defaults(func=lambda args: run_sidecar(_config_target(args)))
 
     gateway_install = subparsers.add_parser("install-gateway", help="安装独立 NotifyHub 常驻网关")
-    from .gateway_install import install_gateway
-    gateway_install.set_defaults(func=lambda args: install_gateway(_config_target(args)))
+    gateway_install.set_defaults(func=cmd_install_gateway)
 
     gateway = subparsers.add_parser("gateway", help="独立飞书收发与多 agent 会话服务")
-    from .gateway import run_gateway
+    from .gateway import run_dsh_client, run_gateway
     gateway.set_defaults(func=lambda args: run_gateway(_config_target(args)))
 
     bridge = subparsers.add_parser("bridge", help="飞书远程续聊桥接")
@@ -447,6 +523,8 @@ def build_parser():
     from .native_transport import cmd_native_transport
     native = bridge_sub.add_parser("native-transport", help="dsh 原生续聊插件的飞书 I/O 子进程")
     native.set_defaults(func=cmd_native_transport)
+    dsh_adapter = bridge_sub.add_parser("dsh-adapter", help="连接 dsh 原会话和独立网关")
+    dsh_adapter.set_defaults(func=lambda args: run_dsh_client(load_config(_config_target(args))))
     bridge_status = bridge_sub.add_parser("status", help="查看当前远程会话")
     bridge_status.set_defaults(func=bridge_cli.cmd_bridge_status)
     bridge_check = bridge_sub.add_parser("check", help="启动前自检")

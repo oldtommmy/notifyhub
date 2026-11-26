@@ -78,7 +78,16 @@ def run_gateway(config_file):
     transport.listener.start()
     print('NotifyHub gateway started', flush=True)
     try:
-        threading.Event().wait()
+        while True:
+            time.sleep(10)
+            if not transport.listener._thread.is_alive() or not transport.worker.is_alive():
+                transport.logger.error('gateway worker stopped; exiting for service restart')
+                return 1
+            # The Feishu connection receives periodic heartbeat frames even
+            # when no user is chatting. A live process alone is insufficient.
+            if time.monotonic() - transport.listener.last_frame_at > 300:
+                transport.logger.error('gateway received no Feishu frames for 300 seconds; exiting for service restart')
+                return 1
     finally:
         transport.codex.close()
         instance_lock.close()

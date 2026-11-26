@@ -5,6 +5,13 @@ import sys
 from pathlib import Path
 
 
+BRAND_LOGOS = (
+    "logo-light.png", "logo.png",
+    "agents/codex.png", "agents/dsh.png", "agents/antigravity.png",
+    "agents/claude.png", "agents/commandcode.png",
+)
+
+
 def launcher_path():
     return Path(__file__).resolve().parent.parent / "notifyhub.py"
 

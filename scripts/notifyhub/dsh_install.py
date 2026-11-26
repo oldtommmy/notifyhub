@@ -121,6 +121,8 @@ def install(profile="web"):
     error = ""
     if result.returncode != 0:
         error = (result.stderr or result.stdout or "安装失败").strip()[-500:]
+        if profile == "desktop" and "initialize its profile" in error:
+            error = "请先打开一次 DeepSeek Harness 桌面版初始化配置，完全退出后再安装接入。"
     return {
         "ok": result.returncode == 0,
         "error": error,

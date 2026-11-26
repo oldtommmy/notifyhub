@@ -1,0 +1,32 @@
+name: Build Skill
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and verify Skill archive
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          tag="${RELEASE_TAG:-v$(python scripts/notifyhub.py --version)}"
+          python scripts/build_skill.py --tag "$tag"
+          cd dist
+          sha256sum --check notifyhub-skill.zip.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notifyhub-skill
+          path: |
+            dist/notifyhub-skill.zip
+            dist/notifyhub-skill.zip.sha256

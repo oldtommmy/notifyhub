@@ -6,7 +6,7 @@ import threading
 
 from .bridge_cli import _acquire_instance_lock
 from .channels import feishu_app
-from .config import load_config
+from .config import DEFAULT_CONFIG, load_config
 from .feishu_listener import FeishuListener
 from .log import get_logger
 from .native_cards import build_native_card
@@ -25,10 +25,11 @@ class NativeTransport:
         self.card_replies = {}
         self.actions = CardActions()
         self.card_seen = SeenMessages()
-        self.buttons_enabled = bool(config.get('bridge', {}).get('card_actions', False))
+        bridge = config.get('bridge', {})
+        self.buttons_enabled = bool(bridge.get('card_actions', DEFAULT_CONFIG['bridge']['card_actions']))
         self.listener = FeishuListener(config, self.inbound, logger, reply=self.refusal, card_action=self.handle_card_action)
         self.outbound = queue.Queue(maxsize=256)
-        self.codex = CodexBridge(config, self.enqueue, logger, state_path=config.get('bridge', {}).get('codex_ledger_path'))
+        self.codex = CodexBridge(config, self.enqueue, logger, state_path=bridge.get('codex_ledger_path'))
         self.antigravity = AntigravityBridge(config, self.enqueue)
         self.antigravity_chats = set()
         self.worker = threading.Thread(target=self._send_loop, daemon=True)
@@ -115,7 +116,7 @@ class NativeTransport:
 
     def receipt(self, response, status):
         receipt = {'type': 'delivery', 'request_id': response.get('request_id'), 'key': response.get('key'), 'status': status}
-        if response.get('view', {}).get('engine') == 'Antigravity' and response.get('key') == 'result':
+        if (response.get('view') or {}).get('engine') == 'Antigravity' and response.get('key') == 'result':
             self.antigravity.receipt(response['message_id'], status)
         elif response.get('request_id') in self.codex.data['requests']:
             self.codex.enqueue(receipt)
@@ -125,19 +126,22 @@ class NativeTransport:
     def _send_loop(self):
         while True:
             try:
-                self.antigravity.poll(self.targets)
-            except (OSError, ValueError) as error:
-                self.logger.warning('Antigravity result check failed: %s', error)
-            try:
                 response = self.outbound.get(timeout=2)
             except queue.Empty:
-                continue
+                try:
+                    response = self.antigravity.take_result(self.targets)
+                except (OSError, ValueError) as error:
+                    self.logger.warning('Antigravity result check failed: %s', error)
+                    continue
+                if response is None:
+                    continue
+            status = 'unknown'
             try:
                 app = self.config['channels']['feishu_app']
                 text = str(response.get('text', ''))
                 limit = int(self.config.get('bridge', {}).get('max_message_chars', 3000))
                 if len(text) > limit:
-                    text = text[:limit] + '\n（内容截断，完整结果见 dsh 原会话）'
+                    text = text[:limit] + '\n（内容截断，完整结果见桌面原会话）'
                 message_id = response['message_id']
                 target = self.card_replies.get(message_id, message_id)
                 key = response.get('key', 'reply')
@@ -148,8 +152,10 @@ class NativeTransport:
                     default_engine = view.get('engine', 'dsh').lower()
                     action_value = None
                     if self.buttons_enabled:
+                        chat_id = response.get('chat_id') or self.targets[message_id]
+
                         def action_value(kind, payload, engine=default_engine):
-                            return self.actions.sign(self.targets[message_id], kind, payload, engine=engine)
+                            return self.actions.sign(chat_id, kind, payload, engine=engine)
                     card = build_native_card(view, max_chars=limit, action_value=action_value)
                     feishu_app.reply_card(target, card, app, dedupe_key=key)
                 else:
@@ -157,9 +163,13 @@ class NativeTransport:
             except Exception as error:
                 # No blind retries or legacy outbox: a timeout may mean delivered.
                 self.logger.warning('native reply outcome unconfirmed: %s', error)
-                self.receipt(response, 'unknown')
             else:
-                self.receipt(response, 'delivered')
+                self.logger.info('native reply delivered message_id=%s key=%s', response['message_id'], response.get('key', 'reply'))
+                status = 'delivered'
+            try:
+                self.receipt(response, status)
+            except (OSError, ValueError) as error:
+                self.logger.warning('cannot record native delivery outcome: %s', error)
 
 
 def cmd_native_transport(args):

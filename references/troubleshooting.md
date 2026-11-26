@@ -65,7 +65,7 @@ Retry policy: network errors, timeouts, and 5xx/429 back off exponentially (60s
 → 1h, up to `max_attempts`). Permanent errors are marked dead immediately so the
 log stays readable. `doctor` shows the current backlog.
 
-The card uses Feishu Card JSON 2.0. If markdown appears as raw text, or the card looks unstyled, confirm the Feishu client is version 7.20 or newer. The GUI preview is a local approximation of Card 2.0, not the Feishu renderer.
+The card uses Feishu Card JSON 2.0. If Markdown appears as raw text or the card looks unstyled, verify the selected message format and Feishu client support. Use **测试当前渠道** to check rendering. **运行与更新** shows outbox counts, and `flush --status` shows individual records.
 
 Test outside notifyhub first:
 

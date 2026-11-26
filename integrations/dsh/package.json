@@ -1,9 +1,10 @@
 {
   "name": "dsh-notifyhub",
+  "private": true,
   "version": "0.2.0",
   "description": "Feishu completion notifications and desktop session continuation for DeepSeek Harness and Codex.",
   "author": "oldtommmy",
-  "contributors": ["OpenAI Codex"],
+  "contributors": ["OpenAI Codex", "Google Antigravity"],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -46,8 +47,5 @@
   },
   "engines": {
     "dsh": ">=0.1.5-0 || >=0.2.2-rc.5 <0.2.2"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

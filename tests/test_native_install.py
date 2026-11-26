@@ -63,6 +63,23 @@ class NativeGuiInstallTests(unittest.TestCase):
         self.assertIn('- id: dsh-notifyhub', self.profile.read_text())
         self.assertIn(json.dumps(str(self.config)), self.profile.read_text())
 
+    def test_desktop_runtime_installs_and_backs_up_supplied_logos(self):
+        source_assets = self.source / 'assets'
+        installed_assets = self.runtime / 'assets'
+        logos = ('logo.png', 'logo-light.png', 'agents/codex.png')
+        for name in logos:
+            for root, content in ((source_assets, b'new logo'), (installed_assets, b'old logo')):
+                mark = root / name
+                mark.parent.mkdir(parents=True, exist_ok=True)
+                mark.write_bytes(content)
+
+        result = self.install(enabled=False, allow_open_ids=[])
+
+        self.assertTrue(result['ok'], result)
+        for name in logos:
+            self.assertEqual((installed_assets / name).read_bytes(), b'new logo')
+            self.assertEqual((Path(result['backup_path']) / 'assets' / name).read_bytes(), b'old logo')
+
     def test_enable_requires_explicit_allowlist_before_mutation(self):
         old = self.profile.read_text()
         result = self.install(enabled=True, allow_open_ids=[])
@@ -74,12 +91,14 @@ class NativeGuiInstallTests(unittest.TestCase):
     def test_repeat_install_preserves_advanced_config_and_has_one_override(self):
         self.assertTrue(self.install(enabled=True, allow_open_ids=['ou_owner'])['ok'])
         target = native_install.native_config_path(self.config)
-        cfg = load_config(target);cfg['bridge']['timeout_seconds'] = 999
+        cfg = load_config(target)
+        self.assertTrue(cfg['bridge']['card_actions'])
+        cfg['bridge'].update(timeout_seconds=999, card_actions=False)
         save_config(cfg, target)
-        result = self.install(enabled=False, allow_open_ids=['ou_owner'], card_actions=True)
+        result = self.install(enabled=False, allow_open_ids=['ou_owner'])
         self.assertTrue(result['ok'], result)
         self.assertEqual(load_config(target)['bridge']['timeout_seconds'], 999)
-        self.assertTrue(load_config(target)['bridge']['card_actions'])
+        self.assertFalse(load_config(target)['bridge']['card_actions'])
         self.assertEqual(self.profile.read_text().count('- id: dsh-notifyhub'), 1)
         self.assertTrue(Path(result['backup_path'], 'native-config.json').exists())
 
@@ -91,6 +110,42 @@ class NativeGuiInstallTests(unittest.TestCase):
         self.assertFalse(bridge['dsh_enabled'])
         self.assertTrue(bridge['codex_enabled'])
         self.assertIn('enabled: true', self.profile.read_text())
+
+    def test_desktop_installer_leaves_independent_gateway_unchanged(self):
+        gateway = self.root / 'gateway.json'
+        config = load_config(self.config)
+        config['bridge'].update(enabled=True, dsh_enabled=False, antigravity_enabled=True,
+                                allow_open_ids=['ou_owner'])
+        save_config(config, gateway)
+        old_gateway = gateway.read_bytes()
+        old_profile = self.profile.read_bytes()
+
+        result = self.install(dsh_enabled=False, codex_enabled=False, allow_open_ids=[])
+
+        self.assertFalse(result['ok'])
+        self.assertIn('独立网关', result['error'])
+        self.assertTrue(native_install.status(self.config)['antigravity_enabled'])
+        self.assertEqual(gateway.read_bytes(), old_gateway)
+        self.assertEqual(self.profile.read_bytes(), old_profile)
+        native_install._run.assert_not_called()
+
+    def test_skill_installs_a_socket_only_adapter_using_existing_gateway(self):
+        target = self.root / 'gateway.json'
+        config = load_config(self.config)
+        config['bridge'].update(dsh_enabled=True, antigravity_enabled=True, gateway_socket='/custom/path')
+        save_config(config, target)
+        existing = target.read_bytes()
+        with patch.dict('os.environ', {'DSH_HOME': str(self.home)}), \
+                patch.object(dsh_install, 'install', return_value={'ok': True}) as apply:
+            result = native_install.install_gateway_adapter(self.config)
+        self.assertTrue(result['ok'])
+        self.assertTrue(result['restart_required'])
+        apply.assert_called_once_with('desktop')
+        self.assertEqual(target.read_bytes(), existing)
+        profile = self.profile.read_text(encoding='utf-8')
+        self.assertIn('dsh-adapter', profile)
+        self.assertIn('!!js () => true', profile)
+        self.assertNotIn('native-transport', profile)
 
     def test_package_install_failure_does_not_enable_or_replace_profile(self):
         old = self.profile.read_bytes()

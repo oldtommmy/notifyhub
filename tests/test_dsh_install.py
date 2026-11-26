@@ -64,6 +64,13 @@ class DshDiscoveryTests(unittest.TestCase):
         self.assertFalse(result['ok'])
         self.assertIn('无法执行', result['error'])
 
+    def test_desktop_initialization_error_identifies_the_next_step(self):
+        outcome = subprocess.CompletedProcess([], 1, '', 'Open DSH once to initialize its profile.')
+        with patch.object(dsh_install.subprocess, 'run', return_value=outcome):
+            result = dsh_install.install('desktop')
+        self.assertFalse(result['ok'])
+        self.assertIn('初始化配置', result['error'])
+
     def test_missing_cli_has_install_guidance_and_failure_exit(self):
         with patch.object(dsh_install, '_desktop_cli_candidates', return_value=[]), patch.object(dsh_install.shutil, 'which', return_value=None):
             result = dsh_install.install('desktop')

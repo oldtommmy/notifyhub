@@ -5,6 +5,20 @@ Override with `--config PATH` or `NOTIFYHUB_CONFIG`.
 
 The GUI and `scripts/setup_config.py` preserve unknown keys and back up an existing file before writing.
 
+<a id="gui-coverage"></a>
+## Local GUI coverage
+
+Open with `python3 scripts/notifyhub.py gui`. Use the same `--config PATH` when checking the GUI and CLI for a specific installation.
+
+| Area | Local GUI | Config or CLI |
+|---|---|---|
+| 通知渠道 | App bot credentials, recipient discovery, group webhook signing, iMessage recipient, channel switches and tests. Expand **接收类型与消息格式** or **群消息选项** for format settings | Base URLs, timeouts and [advanced channel settings](#advanced-channels) |
+| Agent 接入 | **总览** shows installed connections and saved notification switches. Each Agent tab offers hook or adapter setup and common content settings. **高级通知设置** includes excerpts, Codex events and dsh subagents | Other events and launcher overrides through the CLI or configuration |
+| 飞书续聊 | Engine switches, allowlist, card actions, and gateway service controls on macOS. Use **凭据与适配器** for dsh and Antigravity adapter setup | [Foreground gateway and migration](../README.md#gateway) |
+| 运行与更新 | Outbox counts, version checks and verified Skill updates. Use **配置与日志路径** to find local files | Use `flush --status` for entries. Configure [project filters and quiet hours](#filters-and-quiet-hours) in JSON |
+
+The Feishu app notification switch is independent of credential storage and Feishu continuation. Saving a GUI form preserves the app's configured card or text format.
+
 ## Primary channel: Feishu app bot
 
 ```json
@@ -121,7 +135,7 @@ Install with `--target commandcode`; it writes `~/.commandcode/settings.json`. P
 
 ## Receiver discovery
 
-`channels.feishu_app.receive_id_type` / `receive_id` are normally filled by the GUI's 「自动获取」 action. It resolves the app owner's `open_id` (you), with the owner email and bot chats as fallbacks. The type menu explains each target:
+`channels.feishu_app.receive_id_type` / `receive_id` can be filled automatically when the app credentials are entered. **获取接收人** looks up the app owner or candidates matching the selected type:
 
 - `open_id` — app owner / the user themselves.
 - `email` — tenant user by email.
@@ -211,9 +225,7 @@ replayed instead of being lost.
 - `max_age_hours` — entries older than this are pruned on the next write.
 - `max_attempts` — after this many transient failures the entry is marked dead.
 
-Replay happens in three ways: `notifyhub flush`, a successful hook run (drains up
-to 3 entries), and `flush --status` to inspect. Entries are deduplicated by
-`dedupe_key`, so replay never double-sends a turn.
+`notifyhub flush` retries due entries. A successful hook run also drains up to three. Use the GUI for counts or `flush --status` to inspect individual entries. Replay checks `dedupe_key` against the notification's delivery records.
 
 Permanent errors are never retried: `99991663` (bad credentials), `99991672`
 (missing scope), `99991661`, `230001`, `230002`, `230006`, plus configuration

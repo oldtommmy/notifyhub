@@ -74,6 +74,14 @@ DEFAULT_CONFIG = {
         "max_prompt_chars": 160,
         "events": ["Stop"],
     },
+    "antigravity": {
+        "enabled": True,
+        "include_last_message": True,
+        "include_recent_prompt": True,
+        "include_session_id": False,
+        "max_message_chars": 600,
+        "max_prompt_chars": 160,
+    },
     "filters": {
         "projects_allow": [],
         "projects_deny": [],
@@ -96,6 +104,7 @@ DEFAULT_CONFIG = {
         "enabled": False,
         # MUST be filled. Empty means "deny everyone", never "allow everyone".
         "allow_open_ids": [],
+        "card_actions": True,
         "default_agent": "dsh",
         # Workspace the agent runs in. Empty means the config's own directory.
         "workspace": "~",

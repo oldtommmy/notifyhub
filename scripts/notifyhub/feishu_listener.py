@@ -17,6 +17,7 @@ from __future__ import annotations
 import collections
 import json
 import threading
+import time
 
 from .bridge import BridgeDenied, is_allowed, parse_command
 
@@ -98,6 +99,7 @@ class SeenMessages:
 
 class FeishuListener:
     def __init__(self, config, on_message, logger=None, reply=None, card_action=None):
+        self.last_frame_at = time.monotonic()
         self.card_action = card_action
         self.config = config
         self.on_message = on_message
@@ -158,6 +160,8 @@ class FeishuListener:
             self._reply(message_id, f"{error}")
             return
 
+        if self.logger:
+            self.logger.info("bridge: received command=%s message_id=%s", kind, message_id)
         self.on_message(
             kind=kind,
             payload=payload,
@@ -201,7 +205,14 @@ class FeishuListener:
             .register_p2_im_message_message_read_v1(lambda _data: None)
             .build()
         )
-        return lark.ws.Client(
+        listener = self
+
+        class MonitoredClient(lark.ws.Client):
+            async def _handle_message(self, message):
+                listener.last_frame_at = time.monotonic()
+                return await super()._handle_message(message)
+
+        return MonitoredClient(
             app_id,
             app_secret,
             event_handler=handler,

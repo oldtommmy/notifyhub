@@ -1,6 +1,7 @@
 {
   "name": "dsh-notifyhub-native-bridge",
   "version": "0.1.0",
+  "contributors": ["OpenAI Codex", "Google Antigravity"],
   "type": "module",
   "main": "lib/index.js",
   "exports": {
