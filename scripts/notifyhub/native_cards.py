@@ -2,6 +2,7 @@
 import re
 
 HELP_TITLE = 'NotifyHub · 续聊菜单'
+HELP_BACKGROUND = 'cus-0'
 
 
 def escape(value):
@@ -27,7 +28,7 @@ def help_banner(logo_key, description):
         'horizontal_spacing': 'default',
         'columns': [
             {'tag': 'column', 'width': 'weighted', 'weight': 3, 'vertical_align': 'center',
-             'background_style': 'blue-100',
+             'background_style': HELP_BACKGROUND,
              'elements': [markdown(f'**{HELP_TITLE}**\n{description}')]},
             {'tag': 'column', 'width': 'weighted', 'weight': 1, 'vertical_align': 'center',
              'elements': [{'tag': 'img', 'img_key': logo_key, 'mode': 'fit_horizontal',
@@ -133,7 +134,12 @@ def build_native_card(view, max_chars=3000, action_value=None, *, logo_key=None)
     if view.get('engine') in ('Codex', 'Antigravity'):
         title = view['engine'] + ' · ' + title
     card = {'config': {'wide_screen_mode': True}, 'elements': elements}
-    if kind != 'help' or not logo_key:
+    if kind == 'help' and logo_key:
+        card['config']['style'] = {'color': {HELP_BACKGROUND: {
+            'light_mode': 'rgba(224,233,255,0.5)',
+            'dark_mode': 'rgba(23,49,102,0.5)',
+        }}}
+    else:
         card['header'] = {'template': color, 'title': {'tag': 'plain_text', 'content': title}}
     return card
 

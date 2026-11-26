@@ -14,7 +14,10 @@ class NativeCardTests(unittest.TestCase):
         banner = card['elements'][0]
         self.assertEqual(banner['tag'], 'column_set')
         left, right = banner['columns']
-        self.assertEqual(left['background_style'], 'blue-100')
+        self.assertEqual(card['config']['style']['color'][left['background_style']], {
+            'light_mode': 'rgba(224,233,255,0.5)',
+            'dark_mode': 'rgba(23,49,102,0.5)',
+        })
         self.assertIn('NotifyHub · 续聊菜单', left['elements'][0]['text']['content'])
         self.assertGreater(left['weight'], right['weight'])
         image = right['elements'][0]
