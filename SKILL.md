@@ -54,6 +54,7 @@ Buttons work on continuation menu, session and result cards. The user can always
 - **会话** or `/sessions` lists sessions. Use **DSH会话**、**Codex会话** or **Antigravity会话** to switch engines.
 - Click **继续此会话** or reply with a row number. Use **上一页**、**下一页** and **状态** to navigate.
 - After binding, ordinary text goes to the original conversation. Use **切回此会话** on result cards. Refresh old signed buttons after a gateway restart.
+- Desktop continuation accepts up to 5,000 characters per prompt by default. Click **显示完整回答** when the 3,000-character preview cuts off the answer. Long answers can be read page by page in the same card.
 
 ## Update the Skill
 

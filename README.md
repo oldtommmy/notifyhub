@@ -105,6 +105,7 @@ DeepSeek Harness 同样从 NotifyHub Skill 配置。在 GUI 选桌面版或 Web�
 - **会话**或 `/sessions` 列出当前 Agent 的会话。用 **Codex会话**、**Antigravity会话**或 **DSH会话**切换入口。
 - 点击 **继续此会话**，或回复序号、发送 `/attach 2` 选中本页第 2 条。用 **上一页**和 **下一页**翻页。
 - **状态**或 `/status` 查看当前绑定。选中会话后，直接发送想继续聊的内容。
+- 单条续聊提问默认最多 5000 字符。结果卡默认预览 3000 字符，超出时可点 **显示完整回答**，直接在卡片内展开或翻页。
 
 <a id="google-antigravity实验性"></a>
 Antigravity 的飞书输入通过托管 Sidecar 送入桌面会话，桌面可能以 `Message from System` 展示。回复会匹配该轮输入。目标会话至少完成一轮后会出现在列表中。

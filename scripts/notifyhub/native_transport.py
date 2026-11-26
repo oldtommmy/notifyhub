@@ -3,13 +3,14 @@ import json
 import queue
 import sys
 import threading
+import time
 
 from .bridge_cli import _acquire_instance_lock
 from .channels import feishu_app
 from .config import DEFAULT_CONFIG, load_config
 from .feishu_listener import FeishuListener
 from .log import get_logger
-from .native_cards import build_native_card
+from .native_cards import answer_pages, build_full_answer_card, build_native_card
 from .native_actions import CardActions
 from .codex_bridge import CodexBridge
 from .antigravity_bridge import AntigravityBridge
@@ -23,9 +24,13 @@ class NativeTransport:
         self.targets = {}
         self.chat_types = {}
         self.card_replies = {}
+        self.help_image_key = None
+        self.help_image_retry_at = 0.0
         self.actions = CardActions()
         self.card_seen = SeenMessages()
         bridge = config.get('bridge', {})
+        self.prompt_limit = int(bridge.get('max_prompt_chars', DEFAULT_CONFIG['bridge']['max_prompt_chars']))
+        self.answer_limit = int(bridge.get('max_message_chars', DEFAULT_CONFIG['bridge']['max_message_chars']))
         self.buttons_enabled = bool(bridge.get('card_actions', DEFAULT_CONFIG['bridge']['card_actions']))
         self.listener = FeishuListener(config, self.inbound, logger, reply=self.refusal, card_action=self.handle_card_action)
         self.outbound = queue.Queue(maxsize=256)
@@ -51,10 +56,14 @@ class NativeTransport:
             return
         engine = message.get('engine')
         agent, prompt = message.get('payload') if message.get('kind') == 'task' else ('', '')
-        alias = str(prompt).strip().lower().replace(' ', '')
+        prompt = str(prompt)
+        alias = prompt.strip().lower().replace(' ', '')
         if alias == 'antigravity会话':
             engine = 'antigravity'
             message.update(kind='attach_list', payload='')
+        elif len(prompt) > self.prompt_limit:
+            self.refusal(message_id, f'这条提问有 {len(prompt)} 个字符，超过 {self.prompt_limit} 字符上限。请分段发送。')
+            return
         if engine == 'antigravity' or (not engine and (chat in self.antigravity_chats or
                                       self.antigravity.enabled and not self.codex.enabled and not self.codex.dsh_enabled)
                                       and alias not in ('dsh会话', 'codex会话') and agent != 'codex'):
@@ -90,6 +99,11 @@ class NativeTransport:
         request_id = 'card:' + value['nonce']
         if not self.card_seen.check_and_add(request_id):
             return toast('已收到这次操作，请查看回复。')
+        if value['kind'] == 'view_answer':
+            card = self._answer_card(chat, value['payload'])
+            if card is None:
+                return toast('完整回答的查看入口已过期，请在桌面原会话查看。', 'warning')
+            return P2CardActionTriggerResponse({'card': {'type': 'raw', 'data': card}})
         self.card_replies[request_id] = parent
         engine = value.get('engine', 'dsh')
         self.inbound(kind=value['kind'], payload=value['payload'], message_id=request_id,
@@ -123,11 +137,44 @@ class NativeTransport:
         else:
             self.emit(receipt)
 
+    def _help_logo(self, app):
+        if self.help_image_key is None and time.monotonic() >= self.help_image_retry_at:
+            try:
+                self.help_image_key = feishu_app.help_logo_key(app)
+            except (OSError, ValueError, feishu_app.FeishuAppError):
+                self.help_image_retry_at = time.monotonic() + 60
+                self.logger.info('NotifyHub help card logo is unavailable')
+        return self.help_image_key
+
+    def _action_value(self, chat_id, view):
+        engine = view.get('engine', 'dsh').lower()
+        return lambda kind, payload, selected=engine: self.actions.sign(chat_id, kind, payload, engine=selected)
+
+    def _answer_card(self, chat_id, payload):
+        if not isinstance(payload, str):
+            return None
+        answer_id, _, page_number = payload.rpartition(':')
+        try:
+            page = int(page_number)
+        except ValueError:
+            return None
+        answer = self.actions.get_answer(chat_id, answer_id)
+        if answer is None:
+            return None
+        view, pages = answer
+        action_value = self._action_value(chat_id, view)
+        if page == -1:
+            return build_native_card(view, self.answer_limit, action_value, answer_id=answer_id)
+        if 0 <= page < len(pages):
+            return build_full_answer_card(view, pages, page, answer_id, action_value)
+        return None
+
     def _send_loop(self):
         while True:
             try:
                 response = self.outbound.get(timeout=2)
             except queue.Empty:
+                self.actions.prune_answers()
                 try:
                     response = self.antigravity.take_result(self.targets)
                 except (OSError, ValueError) as error:
@@ -139,7 +186,7 @@ class NativeTransport:
             try:
                 app = self.config['channels']['feishu_app']
                 text = str(response.get('text', ''))
-                limit = int(self.config.get('bridge', {}).get('max_message_chars', 3000))
+                limit = self.answer_limit
                 if len(text) > limit:
                     text = text[:limit] + '\n（内容截断，完整结果见桌面原会话）'
                 message_id = response['message_id']
@@ -149,14 +196,19 @@ class NativeTransport:
                     key += ':' + message_id
                 if response.get('view'):
                     view = response['view']
-                    default_engine = view.get('engine', 'dsh').lower()
                     action_value = None
+                    answer_id = None
                     if self.buttons_enabled:
                         chat_id = response.get('chat_id') or self.targets[message_id]
-
-                        def action_value(kind, payload, engine=default_engine):
-                            return self.actions.sign(chat_id, kind, payload, engine=engine)
-                    card = build_native_card(view, max_chars=limit, action_value=action_value)
+                        action_value = self._action_value(chat_id, view)
+                        if view.get('type') == 'result' and view.get('answer_complete', True):
+                            answer = str(view.get('text') or '')
+                            if len(answer) > limit:
+                                answer_id = message_id
+                                self.actions.remember_answer(chat_id, answer_id, {**view, 'text': answer}, answer_pages(answer))
+                    logo_key = self._help_logo(app) if view.get('type') == 'help' else None
+                    card = build_native_card(view, max_chars=limit, action_value=action_value,
+                                             logo_key=logo_key, answer_id=answer_id)
                     feishu_app.reply_card(target, card, app, dedupe_key=key)
                 else:
                     feishu_app.reply_text(target, text, app, dedupe_key=key)

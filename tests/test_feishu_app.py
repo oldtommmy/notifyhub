@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -63,6 +65,29 @@ class FeishuAppTests(unittest.TestCase):
     def test_send_requires_receive_id(self):
         with self.assertRaises(feishu_app.FeishuAppError):
             feishu_app.send(self.notification(), {"receive_id": ""})
+
+    def test_upload_card_logo_uses_bot_image_endpoint(self):
+        with patch.object(feishu_app, 'get_tenant_token', return_value='token'), \
+                patch.object(feishu_app, '_request_json', return_value={'data': {'image_key': 'img_v2_logo'}}) as send:
+            self.assertEqual(feishu_app._upload_card_image(b'image', {'base_url': 'https://example.test/'}),
+                             'img_v2_logo')
+        request = send.call_args.args[0]
+        self.assertEqual(request.full_url, 'https://example.test/open-apis/im/v1/images')
+        self.assertEqual(request.get_header('Authorization'), 'Bearer token')
+        self.assertIn('multipart/form-data; boundary=', request.get_header('Content-type'))
+        self.assertIn(b'name="image_type"\r\n\r\nmessage', request.data)
+        self.assertIn(b'Content-Type: image/png\r\n\r\nimage', request.data)
+
+    def test_help_logo_is_cached_for_the_uploading_app(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(feishu_app, '_upload_card_image', side_effect=['img_v2_first', 'img_v2_second']) as upload:
+            path = Path(directory) / 'help-logo.json'
+            config = {'app_id': 'cli_first', 'app_secret': 'private-fixture'}
+            self.assertEqual(feishu_app.help_logo_key(config, path), 'img_v2_first')
+            self.assertEqual(feishu_app.help_logo_key(config, path), 'img_v2_first')
+            upload.assert_called_once()
+            self.assertEqual(feishu_app.help_logo_key({**config, 'app_id': 'cli_other'}, path), 'img_v2_second')
+            self.assertNotIn(config['app_secret'], path.read_text(encoding='utf-8'))
 
     def test_validate_config_accepts_app_channel(self):
         config = deep_merge(
