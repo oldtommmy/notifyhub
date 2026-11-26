@@ -4,13 +4,21 @@ from notifyhub.native_cards import build_native_card
 
 
 class NativeCardTests(unittest.TestCase):
-    def test_help_groups_commands_and_uses_a_native_header_icon(self):
+    def test_help_groups_commands_and_displays_the_full_logo_on_the_right(self):
         card = build_native_card(
             {'type': 'help', 'codex': True, 'dsh': True, 'antigravity': True},
             action_value=lambda kind, payload, engine: {'kind': kind, 'engine': engine},
             logo_key='img_v2_logo',
         )
-        self.assertEqual(card['header']['icon'], {'img_key': 'img_v2_logo'})
+        self.assertNotIn('header', card)
+        banner = card['elements'][0]
+        self.assertEqual(banner['tag'], 'column_set')
+        left, right = banner['columns']
+        self.assertIn('NotifyHub · 续聊菜单', left['elements'][0]['text']['content'])
+        self.assertGreater(left['weight'], right['weight'])
+        image = right['elements'][0]
+        self.assertEqual((image['tag'], image['img_key'], image['mode']),
+                         ('img', 'img_v2_logo', 'fit_horizontal'))
         actions = [element['actions'] for element in card['elements'] if element['tag'] == 'action']
         self.assertEqual([item['value']['engine'] for item in actions[0]], ['codex', 'dsh', 'antigravity'])
         self.assertEqual(actions[1][0]['value'], {'kind': 'status', 'engine': 'current'})

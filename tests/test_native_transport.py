@@ -104,7 +104,7 @@ class NativeTransportTests(unittest.TestCase):
                 transport._send_loop()
 
         reply.assert_called_once()
-        self.assertNotIn('icon', reply.call_args.args[1]['header'])
+        self.assertEqual(reply.call_args.args[1]['header']['title']['content'], 'NotifyHub · 续聊菜单')
         self.assertEqual(reply.call_args.kwargs['dedupe_key'], 'help')
         self.assertEqual(self.frames[-1]['status'], 'delivered')
 

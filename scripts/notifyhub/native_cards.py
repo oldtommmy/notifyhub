@@ -1,6 +1,8 @@
 """Feishu layouts with optional callback buttons and numbered-reply fallback."""
 import re
 
+HELP_TITLE = 'NotifyHub · 续聊菜单'
+
 
 def escape(value):
     return re.sub(r'([\\`*_[\]<>])', r'\\\1', str(value or ''))
@@ -18,14 +20,31 @@ def session_details(session):
     return f"📁 {escape(session.get('project'))}　·　{status}\n模型：{escape(model)}"
 
 
-def help_elements(view, action_value):
+def help_banner(logo_key, description):
+    return {
+        'tag': 'column_set',
+        'flex_mode': 'none',
+        'background_style': 'grey',
+        'horizontal_spacing': 'default',
+        'columns': [
+            {'tag': 'column', 'width': 'weighted', 'weight': 3, 'vertical_align': 'center',
+             'elements': [markdown(f'**{HELP_TITLE}**\n{description}')]},
+            {'tag': 'column', 'width': 'weighted', 'weight': 1, 'vertical_align': 'center',
+             'elements': [{'tag': 'img', 'img_key': logo_key, 'mode': 'fit_horizontal',
+                           'alt': {'tag': 'plain_text', 'content': 'NotifyHub Logo'}}]},
+        ],
+    }
+
+
+def help_elements(view, action_value, logo_key=None):
     engines = [(engine, name) for engine, name in (
         ('codex', 'Codex'), ('dsh', 'DSH'), ('antigravity', 'Antigravity'),
     ) if view.get(engine)]
+    description = ('先选一个桌面会话，再直接发消息。回答会回到飞书。' if engines else
+                   '此聊天暂无可用的续聊入口。请与机器人私聊，并在 NotifyHub 配置中启用续聊。')
+    elements = [help_banner(logo_key, description) if logo_key else markdown(description)]
     if not engines:
-        return [markdown('此聊天暂无可用的续聊入口。请与机器人私聊，并在 NotifyHub 配置中启用续聊。')]
-
-    elements = [markdown('先选一个桌面会话，再直接发消息。回答会回到飞书。')]
+        return elements
     if action_value:
         controls = [button(f'{label} 会话', action_value('attach_list', '', engine), 'primary')
                     for engine, label in engines]
@@ -62,8 +81,8 @@ def build_native_card(view, max_chars=3000, action_value=None, *, logo_key=None)
     elements = []
     color = 'blue'
     if kind == 'help':
-        title = 'NotifyHub · 续聊菜单'
-        elements = help_elements(view, action_value)
+        title = HELP_TITLE
+        elements = help_elements(view, action_value, logo_key)
     elif kind == 'sessions':
         title = '选择要继续的会话'
         rows = view.get('sessions') or []
@@ -113,10 +132,10 @@ def build_native_card(view, max_chars=3000, action_value=None, *, logo_key=None)
         elements.append({'tag': 'action', 'actions': controls})
     if view.get('engine') in ('Codex', 'Antigravity'):
         title = view['engine'] + ' · ' + title
-    header = {'template': color, 'title': {'tag': 'plain_text', 'content': title}}
-    if kind == 'help' and logo_key:
-        header['icon'] = {'img_key': logo_key}
-    return {'config': {'wide_screen_mode': True}, 'header': header, 'elements': elements}
+    card = {'config': {'wide_screen_mode': True}, 'elements': elements}
+    if kind != 'help' or not logo_key:
+        card['header'] = {'template': color, 'title': {'tag': 'plain_text', 'content': title}}
+    return card
 
 
 def button(label, value, style='default'):
