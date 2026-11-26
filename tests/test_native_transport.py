@@ -1,3 +1,4 @@
+import json
 import logging
 from queue import Empty
 import unittest
@@ -64,7 +65,8 @@ class NativeTransportTests(unittest.TestCase):
         view = transport.outbound.get_nowait()['view']
         self.assertEqual(view, {'type': 'help', 'dsh': True, 'codex': True, 'antigravity': False})
         card = build_native_card(view, action_value=lambda k, p, e: transport.actions.sign(chat, k, p, e))
-        ds, codex, status = card['elements'][1]['actions']
+        buttons = {button['value']['engine']: button
+                   for element in card['elements'] for button in element.get('actions', [])}
 
         def click(button):
             return transport.handle_card_action(NS(event=NS(
@@ -73,20 +75,38 @@ class NativeTransportTests(unittest.TestCase):
             )))
 
         with patch.object(transport.codex, 'enqueue') as route_codex:
-            self.assertEqual(click(codex).toast.type, 'info')
+            self.assertEqual(click(buttons['codex']).toast.type, 'info')
             self.assertEqual(route_codex.call_args.args[0]['kind'], 'attach_list')
-            self.assertEqual(click(status).toast.type, 'info')
+            self.assertEqual(click(buttons['current']).toast.type, 'info')
             self.assertEqual(route_codex.call_args.args[0]['kind'], 'status')
-            self.assertEqual(click(ds).toast.type, 'info')
+            self.assertEqual(click(buttons['dsh']).toast.type, 'info')
             self.assertEqual(self.frames[-1]['kind'], 'attach_list')
             self.assertEqual(transport.codex.routes[chat], 'dsh')
 
     def test_help_without_card_callbacks_shows_only_available_commands(self):
         card = build_native_card({'type': 'help', 'dsh': False, 'codex': True, 'antigravity': False})
-        elements = card['elements']
-        self.assertTrue(all(element['tag'] == 'div' for element in elements))
-        self.assertIn('Codex会话', elements[-1]['text']['content'])
-        self.assertNotIn('DSH会话', elements[-1]['text']['content'])
+        text = json.dumps(card, ensure_ascii=False)
+        self.assertFalse(any(element['tag'] == 'action' for element in card['elements']))
+        self.assertIn('Codex会话', text)
+        self.assertNotIn('DSH会话', text)
+        self.assertNotIn('Antigravity会话', text)
+        self.assertIn('/attach 2', text)
+
+    def test_help_sends_once_when_optional_logo_upload_fails(self):
+        transport = self.transport
+        transport.targets['om_help'] = 'oc_1'
+        response = {'type': 'reply', 'message_id': 'om_help', 'key': 'help',
+                    'view': {'type': 'help', 'codex': True}}
+        with patch.object(transport.outbound, 'get', side_effect=[response, StopIteration]), \
+                patch.object(feishu_app, 'help_logo_key', side_effect=feishu_app.FeishuAppError('scope')), \
+                patch.object(feishu_app, 'reply_card') as reply:
+            with self.assertRaises(StopIteration):
+                transport._send_loop()
+
+        reply.assert_called_once()
+        self.assertNotIn('icon', reply.call_args.args[1]['header'])
+        self.assertEqual(reply.call_args.kwargs['dedupe_key'], 'help')
+        self.assertEqual(self.frames[-1]['status'], 'delivered')
 
     def test_reply_uuid_is_stable_for_result_but_differs_for_ack(self):
         with patch.object(feishu_app, '_token_for', return_value=('test', 'https://example.invalid', 5)), patch.object(feishu_app, '_post_json', return_value={}) as post:

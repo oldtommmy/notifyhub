@@ -1,11 +1,15 @@
+import hashlib
 import http.client
 import json
+from pathlib import Path
 import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from ..render import build_card, render_text
+from ..runtime import launcher_path
+from ..state import state_lock
 
 TOKEN_PATH = "/open-apis/auth/v3/tenant_access_token/internal"
 MESSAGE_PATH = "/open-apis/im/v1/messages"
@@ -55,6 +59,10 @@ def _post_json(url, payload, headers, timeout):
         headers={"Content-Type": "application/json; charset=utf-8", **headers},
         method="POST",
     )
+    return _request_json(request, timeout)
+
+
+def _request_json(request, timeout):
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8", "replace")
@@ -146,6 +154,50 @@ def _token_for(config):
             if attempt == 2:
                 raise
     return token, base_url.rstrip("/"), timeout
+
+
+def _upload_card_image(image, config):
+    timeout = float(config.get("timeout_seconds", 5))
+    base_url = config.get("base_url", "https://open.feishu.cn").rstrip("/")
+    token = get_tenant_token(config.get("app_id"), config.get("app_secret"), timeout, base_url)
+    boundary = uuid.uuid4().hex
+    body = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="image_type"\r\n\r\nmessage\r\n'
+        f'--{boundary}\r\nContent-Disposition: form-data; name="image"; filename="notifyhub.png"\r\n'
+        f'Content-Type: image/png\r\n\r\n'
+    ).encode("ascii") + image + f"\r\n--{boundary}--\r\n".encode("ascii")
+    request = urllib.request.Request(base_url + "/open-apis/im/v1/images", data=body, headers={
+        "Authorization": f"Bearer {token}", "Content-Type": f"multipart/form-data; boundary={boundary}",
+    }, method="POST")
+    data = _request_json(request, timeout).get("data")
+    key = data.get("image_key") if isinstance(data, dict) else None
+    if not isinstance(key, str) or not key:
+        raise FeishuAppError("image_key missing in response")
+    return key
+
+
+def help_logo_key(config, cache_path=None):
+    image = (launcher_path().parents[1] / "assets/logo-light.png").read_bytes()
+    source = [config.get("base_url", "https://open.feishu.cn").rstrip("/"),
+              config.get("app_id"), hashlib.sha256(image).hexdigest()]
+    path = Path(cache_path) if cache_path else Path.home() / ".local/state/notifyhub/help-logo.json"
+    with state_lock(path):
+        try:
+            cached = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            cached = {}
+        if isinstance(cached, dict) and cached.get("source") == source:
+            key = cached.get("image_key")
+            if isinstance(key, str) and key:
+                return key
+        key = _upload_card_image(image, config)
+        try:
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps({"source": source, "image_key": key}), encoding="utf-8")
+            temporary.replace(path)
+        except OSError:
+            pass
+        return key
 
 
 def reply_text(message_id, text, config, dedupe_key=None):

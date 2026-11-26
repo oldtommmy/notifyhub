@@ -19,13 +19,9 @@ def session_details(session):
 
 
 def help_elements(view, action_value):
-    engines = []
-    if view.get('dsh'):
-        engines.append(('dsh', 'DSH'))
-    if view.get('codex'):
-        engines.append(('codex', 'Codex'))
-    if view.get('antigravity'):
-        engines.append(('antigravity', 'Antigravity'))
+    engines = [(engine, name) for engine, name in (
+        ('codex', 'Codex'), ('dsh', 'DSH'), ('antigravity', 'Antigravity'),
+    ) if view.get(engine)]
     if not engines:
         return [markdown('此聊天暂无可用的续聊入口。请与机器人私聊，并在 NotifyHub 配置中启用续聊。')]
 
@@ -33,23 +29,34 @@ def help_elements(view, action_value):
     if action_value:
         controls = [button(f'{label} 会话', action_value('attach_list', '', engine), 'primary')
                     for engine, label in engines]
-        controls.append(button('当前会话', action_value('status', '', 'current')))
         elements.append({'tag': 'action', 'actions': controls})
-    commands = [f'**`{label}会话`** · 列出 {label} 会话并切到该工具' for _, label in engines]
-    commands.extend([
-        '**`会话` / `/sessions`** · 列出当前工具的会话',
-        '**`2` / `/attach 2`** · 选中本页第 2 个会话',
-        '**`上一页` / `下一页`** · 翻动会话列表',
-        '**`状态` / `/status`** · 查看当前绑定',
-        '**`帮助` / `命令` / `菜单` / `help` / `command`** · 打开这张菜单',
+    engine_commands = ' · '.join(f'{label}会话' for _, label in engines)
+    commands = (
+        ('会话 · /sessions', '列出当前工具的会话'),
+        ('2 · /attach 2', '选中本页第 2 个会话'),
+        ('上一页 · 下一页', '翻动会话列表'),
+        ('状态 · /status', '查看当前绑定'),
+    )
+    elements.extend([
+        markdown(f'**切换工具**\n{engine_commands}'),
+        {'tag': 'hr'},
+        {'tag': 'div', 'fields': [
+            {'is_short': True, 'text': {'tag': 'lark_md', 'content': f'**{command}**\n{description}'}}
+            for command, description in commands
+        ]},
+        markdown('**打开菜单**\n帮助 · 命令 · 菜单 · help · command'),
     ])
-    elements.append(markdown('\n'.join(commands)))
     if action_value:
-        elements.append(markdown('在列表点「继续此会话」，也可在回答卡片点「切回此会话」。'))
+        elements.extend([
+            {'tag': 'action', 'actions': [button('查看当前会话', action_value('status', '', 'current'))]},
+            {'tag': 'note', 'elements': [
+                {'tag': 'plain_text', 'content': '在列表点「继续此会话」，在回答卡片可点「切回此会话」。'},
+            ]},
+        ])
     return elements
 
 
-def build_native_card(view, max_chars=3000, action_value=None):
+def build_native_card(view, max_chars=3000, action_value=None, *, logo_key=None):
     kind = view.get('type')
     session = view.get('session') or {}
     elements = []
@@ -60,7 +67,7 @@ def build_native_card(view, max_chars=3000, action_value=None):
     elif kind == 'sessions':
         title = '选择要继续的会话'
         rows = view.get('sessions') or []
-        elements.append(markdown('**回复序号即可切换**，例如回复 `2`。选择在 5 分钟内有效。'))
+        elements.append(markdown('**回复序号即可切换**，例如回复「2」。选择在 5 分钟内有效。'))
         for index, row in enumerate(rows):
             elements.append({'tag': 'hr'})
             current = ' · 当前会话' if row.get('current') else ''
@@ -106,7 +113,10 @@ def build_native_card(view, max_chars=3000, action_value=None):
         elements.append({'tag': 'action', 'actions': controls})
     if view.get('engine') in ('Codex', 'Antigravity'):
         title = view['engine'] + ' · ' + title
-    return {'config': {'wide_screen_mode': True}, 'header': {'template': color, 'title': {'tag': 'plain_text', 'content': title}}, 'elements': elements}
+    header = {'template': color, 'title': {'tag': 'plain_text', 'content': title}}
+    if kind == 'help' and logo_key:
+        header['icon'] = {'img_key': logo_key}
+    return {'config': {'wide_screen_mode': True}, 'header': header, 'elements': elements}
 
 
 def button(label, value, style='default'):

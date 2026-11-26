@@ -3,6 +3,7 @@ import json
 import queue
 import sys
 import threading
+import time
 
 from .bridge_cli import _acquire_instance_lock
 from .channels import feishu_app
@@ -23,6 +24,8 @@ class NativeTransport:
         self.targets = {}
         self.chat_types = {}
         self.card_replies = {}
+        self.help_image_key = None
+        self.help_image_retry_at = 0.0
         self.actions = CardActions()
         self.card_seen = SeenMessages()
         bridge = config.get('bridge', {})
@@ -123,6 +126,15 @@ class NativeTransport:
         else:
             self.emit(receipt)
 
+    def _help_logo(self, app):
+        if self.help_image_key is None and time.monotonic() >= self.help_image_retry_at:
+            try:
+                self.help_image_key = feishu_app.help_logo_key(app)
+            except (OSError, ValueError, feishu_app.FeishuAppError):
+                self.help_image_retry_at = time.monotonic() + 60
+                self.logger.info('NotifyHub help card logo is unavailable')
+        return self.help_image_key
+
     def _send_loop(self):
         while True:
             try:
@@ -156,7 +168,8 @@ class NativeTransport:
 
                         def action_value(kind, payload, engine=default_engine):
                             return self.actions.sign(chat_id, kind, payload, engine=engine)
-                    card = build_native_card(view, max_chars=limit, action_value=action_value)
+                    logo_key = self._help_logo(app) if view.get('type') == 'help' else None
+                    card = build_native_card(view, max_chars=limit, action_value=action_value, logo_key=logo_key)
                     feishu_app.reply_card(target, card, app, dedupe_key=key)
                 else:
                     feishu_app.reply_text(target, text, app, dedupe_key=key)
