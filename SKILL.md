@@ -39,6 +39,8 @@ python3 "$SKILL_ROOT/scripts/notifyhub.py" doctor
 
 Run the commands for the selected hosts. dsh Desktop uses the `desktop` profile and dsh Web uses `web`. If dsh detection fails, first check the desktop-bundled CLI and PATH. If missing, check Node.js/npm and help the user install the official `@deepseek-ai/dsh` CLI. Verify `dsh --version` before proceeding. [dsh CLI and migration](references/dsh.md#missing-cli)
 
+Private completion cards from a Feishu app can show **显示完整回答** when the same bot's card callbacks are enabled and its gateway is online. Keep **最后一条回答** enabled for that Agent, and verify with a newly delivered completion card. [Card callback setup](references/feishu-setup.md#card-callbacks)
+
 ## Feishu continuation
 
 1. Use a Python environment containing `lark-oapi>=1.8,<2`. In **飞书续聊**, save the enabled engines and verified `open_id` allowlist, then start the independent gateway. Expand **凭据与适配器** to configure the relevant dsh or Antigravity adapter. For Codex, keep the target chat open and check CLI support for the queue and turn history APIs. Restart desktop adapters after owned work finishes.

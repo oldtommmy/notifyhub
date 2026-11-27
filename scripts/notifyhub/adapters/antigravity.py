@@ -60,7 +60,8 @@ def parse(payload, config):
     if not isinstance(prompt, str):
         prompt = recorded_prompt
     prompt = clean_user_input(prompt)
-    if prompt.strip() != recorded_prompt.strip():
+    include_last_message = settings.get("include_last_message", True)
+    if not include_last_message or prompt.strip() != recorded_prompt.strip():
         answer = ""
     workspaces = payload.get("workspacePaths") or []
     cwd = workspaces[0] if isinstance(workspaces, list) and workspaces and isinstance(workspaces[0], str) else ""
@@ -75,8 +76,9 @@ def parse(payload, config):
         session_id=conversation, turn_id=turn or str(execution), model=str(payload.get("modelName") or ""),
         recent_prompt=shorten(prompt, int(settings.get("max_prompt_chars", 160))) if settings.get("include_recent_prompt", True) else "",
         last_message=shorten_markdown(answer, int(settings.get("max_message_chars", 600))),
-        include_last_message=settings.get("include_last_message", True),
+        include_last_message=include_last_message,
         include_session_id=settings.get("include_session_id", False),
         dedupe_key=f"antigravity:{conversation}:{turn or execution}:{digest}",
         extra_lines=["[在 Antigravity 继续会话](https://antigravity.google.com/)"] if settings.get("remote_control_link", False) else [],
+        full_answer=answer.strip(),
     )

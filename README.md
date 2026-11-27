@@ -57,6 +57,8 @@ python3 ~/.agents/skills/notifyhub/scripts/notifyhub.py gui
 
 回到 GUI 的 **通知渠道 → 飞书应用机器人**。填入 App ID 和 App Secret 后，会自动查找应用所有者的 `open_id`。也可点击 **获取接收人**重试，或填写核实过的 ID。需要更改接收人类型或卡片格式时，展开 **接收类型与消息格式**。勾选启用通知并保存，点击 **测试当前渠道**确认收到通知。暂存凭据时可以保留开关关闭。
 
+同一个飞书应用的卡片回调启用且接收服务在线时，私聊中的完成通知可点 **显示完整回答**。卡片保留 Agent 设置中的摘要长度，长回答可以翻页。 [卡片回调配置](references/feishu-setup.md#card-callbacks)
+
 群机器人 webhook 和 iMessage 可在同一页切换配置。凭据只需填入本机窗口或本机环境变量。 [配置文件与进阶选项](references/config.md)
 
 ### 3. 接入你使用的 Agent
@@ -97,7 +99,7 @@ DeepSeek Harness 可通过 Skill 或 DSH Market 接入。在 Skill 的 GUI 选�
 
 续聊卡片默认显示操作按钮。在飞书后台的 **事件与回调 → 回调配置**选择 **使用长连接接收回调**，添加 **卡片回传交互** `card.action.trigger`，按后台提示发布。回到 GUI 的 **飞书续聊**确认 **在续聊卡片中显示操作按钮**已勾选。更改开关后保存并重载网关。由 DeepSeek Harness 托管时，保存后重启桌面 App。
 
-发 **帮助**获取新的菜单卡片，再检查按钮。也可以发 **会话**，回复列表里的序号继续。旧卡片需要重新获取。普通完成通知是结果摘要，按钮入口出现在续聊的菜单、会话列表和结果卡片上。 [带截图的按钮配置步骤](references/feishu-setup.md#card-callbacks)
+发 **帮助**获取新的菜单卡片，再检查按钮。也可以发 **会话**，回复列表里的序号继续。后续送达的完成通知和续聊结果卡都可在卡片内查看全文。 [带截图的按钮配置步骤](references/feishu-setup.md#card-callbacks)
 
 ### 飞书命令
 

@@ -1,11 +1,8 @@
 """Feishu layouts with optional callback buttons and numbered-reply fallback."""
-import json
 import re
 
 HELP_TITLE = 'NotifyHub · 续聊菜单'
 HELP_BACKGROUND = 'cus-0'
-# Leave room for the card metadata and signed buttons within Feishu's 30 KB payload.
-ANSWER_PAGE_BYTES = 24_000
 
 
 def escape(value):
@@ -77,30 +74,6 @@ def help_elements(view, action_value, logo_key=None):
             ]},
         ])
     return elements
-
-
-def answer_pages(text):
-    """Return lossless page boundaries within the serialized text budget."""
-    pages = []
-    start = 0
-    while start < len(text):
-        end = min(len(text), start + ANSWER_PAGE_BYTES)
-        low, high = start, end + 1
-        while low + 1 < high:
-            candidate = (low + high) // 2
-            size = len(json.dumps(text[start:candidate], ensure_ascii=False).encode('utf-8'))
-            if size <= ANSWER_PAGE_BYTES:
-                low = candidate
-            else:
-                high = candidate
-        end = low
-        if end < len(text):
-            line_end = text.rfind('\n', start + (end - start) // 2, end)
-            if line_end >= 0:
-                end = line_end + 1
-        pages.append((start, end))
-        start = end
-    return pages
 
 
 def build_full_answer_card(view, pages, page, answer_id, action_value):

@@ -31,11 +31,10 @@ def parse_hook(payload, settings, source, default_title, model_fallback=""):
     )
 
     include_last_message = bool(settings.get("include_last_message", True))
-    last_message = str(payload.get("last_assistant_message") or data.get("last_message") or "")
-    if include_last_message:
-        last_message = shorten_markdown(last_message, int(settings.get("max_message_chars", 600)))
-    else:
-        last_message = ""
+    full_answer = str(payload.get("last_assistant_message") or data.get("last_message") or "").strip()
+    if not include_last_message:
+        full_answer = ""
+    last_message = shorten_markdown(full_answer, int(settings.get("max_message_chars", 600)))
 
     recent_prompt = ""
     if settings.get("include_recent_prompt", True):
@@ -67,4 +66,5 @@ def parse_hook(payload, settings, source, default_title, model_fallback=""):
         show_quota=False,
         show_thread_tokens=False,
         dedupe_key=f"{source}:{event}:{session_id}:{turn_id or digest}",
+        full_answer=full_answer,
     )

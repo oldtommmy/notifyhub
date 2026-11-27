@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from ..notification_answers import NotificationAnswers
 from ..render import build_card, render_text
 from ..runtime import launcher_path
 from ..state import state_lock
@@ -101,6 +102,12 @@ def get_tenant_token(app_id, app_secret, timeout, base_url="https://open.feishu.
     return token
 
 
+def supports_notification_answers(config):
+    return (config.get("message_type", "card") == "card"
+            and config.get("receive_id_type", "email") != "chat_id"
+            and config.get("include_full_answer", True))
+
+
 def send(notification, config, logger=None):
     receive_id = config.get("receive_id", "")
     if not receive_id:
@@ -117,14 +124,23 @@ def send(notification, config, logger=None):
     receive_id_type = config.get("receive_id_type", "email")
     url = f"{base_url.rstrip('/')}{MESSAGE_PATH}?receive_id_type={urllib.parse.quote(receive_id_type)}"
     payload = build_message_payload(notification, config)
+    answers = NotificationAnswers(config.get("app_id", ""))
+    prepared = answers.prepare(notification, payload) if supports_notification_answers(config) else None
 
     try:
-        return _post_json(
+        result = _post_json(
             url, payload, {"Authorization": f"Bearer {token}"}, timeout,
         )
     except TransportError as error:
         # Token acquisition errors happen before this block and are safe to retry.
         raise AmbiguousSendError(str(error)) from error
+    if prepared:
+        try:
+            answers.remember(prepared, notification.full_answer, result.get("data") or {})
+        except (OSError, ValueError):
+            if logger:
+                logger.warning("Feishu accepted the card but its full answer could not be saved")
+    return result
 
 
 def _submit_json(url, payload, headers, timeout):

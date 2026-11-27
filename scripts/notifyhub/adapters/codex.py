@@ -70,12 +70,9 @@ def parse(payload, config):
     project = Path(cwd).name if cwd else ""
     title = thread.get("title") or project or "Codex"
 
-    last_message = ""
-    if codex_config.get("include_last_message", True):
-        last_message = shorten_markdown(
-            payload.get("last_assistant_message", ""),
-            int(codex_config.get("max_message_chars", 600)),
-        )
+    include_last_message = codex_config.get("include_last_message", True)
+    full_answer = str(payload.get("last_assistant_message") or "").strip() if include_last_message else ""
+    last_message = shorten_markdown(full_answer, int(codex_config.get("max_message_chars", 600)))
 
     goal_status = goal.get("status", "") if goal else ""
     turn_id = str(payload.get("turn_id", ""))
@@ -120,8 +117,9 @@ def parse(payload, config):
         show_quota=show_quota,
         recent_prompt=recent_prompt,
         last_message=last_message,
-        include_last_message=codex_config.get("include_last_message", True),
+        include_last_message=include_last_message,
         include_session_id=codex_config.get("include_session_id", False),
         show_thread_tokens=False,
         dedupe_key=f"codex:{event}:{session_id}:{turn_id}:{agent_id}",
+        full_answer=full_answer,
     )

@@ -25,6 +25,7 @@ DEFAULT_CONFIG = {
             "receive_id_type": "open_id",
             "receive_id": "",
             "message_type": "card",
+            "include_full_answer": True,
             "at_all": False,
             "timeout_seconds": 5,
         },

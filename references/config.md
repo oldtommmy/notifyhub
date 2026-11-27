@@ -298,4 +298,4 @@ Environment overrides take precedence over the file at runtime. The GUI saves ra
 - `save_config` sets the file to mode `600`.
 - Do not commit `~/.config/notifyhub/config.json`.
 - Notification content leaves the machine and is visible to the Feishu tenant.
-- Use `projects_deny`, `include_last_message: false`, or a smaller `max_message_chars` for sensitive work.
+- Use `projects_deny` or `include_last_message: false` for sensitive work. For preview-only Feishu app notifications, set `channels.feishu_app.include_full_answer: false` and choose a suitable `max_message_chars`.

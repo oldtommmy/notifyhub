@@ -10,8 +10,9 @@ from .channels import feishu_app
 from .config import DEFAULT_CONFIG, load_config
 from .feishu_listener import FeishuListener
 from .log import get_logger
-from .native_cards import answer_pages, build_full_answer_card, build_native_card
+from .native_cards import build_full_answer_card, build_native_card
 from .native_actions import CardActions
+from .notification_answers import ACTION as NOTIFICATION_ANSWER, NotificationAnswers, answer_pages
 from .codex_bridge import CodexBridge
 from .antigravity_bridge import AntigravityBridge
 from .bridge import is_allowed
@@ -32,6 +33,7 @@ class NativeTransport:
         self.prompt_limit = int(bridge.get('max_prompt_chars', DEFAULT_CONFIG['bridge']['max_prompt_chars']))
         self.answer_limit = int(bridge.get('max_message_chars', DEFAULT_CONFIG['bridge']['max_message_chars']))
         self.buttons_enabled = bool(bridge.get('card_actions', DEFAULT_CONFIG['bridge']['card_actions']))
+        self.notification_answers = NotificationAnswers(config.get('channels', {}).get('feishu_app', {}).get('app_id', ''))
         self.listener = FeishuListener(config, self.inbound, logger, reply=self.refusal, card_action=self.handle_card_action)
         self.outbound = queue.Queue(maxsize=256)
         self.codex = CodexBridge(config, self.enqueue, logger, state_path=bridge.get('codex_ledger_path'))
@@ -92,6 +94,11 @@ class NativeTransport:
         chat = getattr(context, 'open_chat_id', '')
         parent = getattr(context, 'open_message_id', '')
         value = getattr(getattr(event, 'action', None), 'value', None)
+        if isinstance(value, dict) and value.get('kind') == NOTIFICATION_ANSWER:
+            card = self.notification_answers.card(value, chat, parent) if self.buttons_enabled and sender else None
+            if card is None:
+                return toast('这张卡片的完整回答已不可用，请在桌面原会话查看。', 'warning')
+            return P2CardActionTriggerResponse({'card': {'type': 'raw', 'data': card}})
         if not is_allowed(sender, self.config):
             return toast('你没有此机器人的操作权限。', 'error')
         if not self.buttons_enabled or not parent or not self.actions.verify(value, chat):
@@ -171,6 +178,8 @@ class NativeTransport:
 
     def _send_loop(self):
         while True:
+            if self.buttons_enabled:
+                self.notification_answers.heartbeat()
             try:
                 response = self.outbound.get(timeout=2)
             except queue.Empty:

@@ -1,10 +1,13 @@
 import json
 import logging
+from pathlib import Path
 from queue import Empty
+from tempfile import TemporaryDirectory
 import unittest
 from types import SimpleNamespace as NS
 from unittest.mock import patch
 
+from notifyhub.adapters import dsh
 from notifyhub.bridge import parse_command
 from notifyhub.native_cards import build_native_card
 from notifyhub.native_transport import NativeTransport
@@ -119,6 +122,60 @@ class NativeTransportTests(unittest.TestCase):
         self.assertTrue(transport.outbound.empty())
         self.assertEqual([frame['type'] for frame in self.frames], ['delivery'])
         send.assert_called_once()
+
+    def test_completion_card_opens_only_its_own_full_answer(self):
+        from lark_oapi.core.json import JSON
+
+        app = {'app_id': 'cli_notification', 'app_secret': 'test',
+               'receive_id_type': 'open_id', 'receive_id': 'ou_owner'}
+        config = {'channels': {'feishu_app': app}, 'bridge': {'card_actions': True}}
+        answer = '开始\n' + ('一段🙂 "正文" 和 \\ 路径\n' * 2500) + '完整结尾'
+        payload = {'session_id': 'original', 'last_assistant_message': answer}
+        notification = dsh.parse(payload, {})
+
+        def buttons(card):
+            return {element['text']['content']: element['behaviors'][0]['value']
+                    for element in card['body']['elements'] if element['tag'] == 'button'}
+
+        with TemporaryDirectory() as directory, patch.object(Path, 'home', return_value=Path(directory)):
+            transport = NativeTransport(config, logging.getLogger('test'), self.frames.append)
+            outgoing = feishu_app.build_message_payload(notification, app)
+            self.assertIsNone(transport.notification_answers.prepare(notification, outgoing))
+            transport.notification_answers.heartbeat()
+            hidden = dsh.parse(payload, {'dsh': {'include_last_message': False}})
+            self.assertEqual(hidden.full_answer, '')
+            self.assertIsNone(transport.notification_answers.prepare(hidden, feishu_app.build_message_payload(hidden, app)))
+            response = {'data': {'chat_id': 'oc_original', 'message_id': 'om_notice'}}
+            with patch.object(feishu_app, 'get_tenant_token', return_value='test-token'), \
+                    patch.object(feishu_app, '_post_json', return_value=response) as send:
+                self.assertEqual(feishu_app.send(notification, app), response)
+            preview = json.loads(send.call_args.args[1]['content'])
+            self.assertNotIn('完整结尾', json.dumps(preview, ensure_ascii=False))
+            action = buttons(preview)['显示完整回答']
+            restarted = NativeTransport(config, logging.getLogger('test'), self.frames.append)
+
+            def click(value, chat='oc_original', message_id='om_notice'):
+                return restarted.handle_card_action(NS(event=NS(
+                    operator=NS(open_id='ou_owner'), context=NS(open_chat_id=chat, open_message_id=message_id),
+                    action=NS(value=value),
+                )))
+
+            self.assertEqual(click(action, chat='oc_other').toast.type, 'warning')
+            self.assertEqual(click(action, message_id='om_other').toast.type, 'warning')
+            all_text = []
+            for _ in range(20):
+                opened = click(action)
+                self.assertLessEqual(len(JSON.marshal(opened).encode('utf-8')), 30_000)
+                self.assertEqual(opened.card.data['schema'], '2.0')
+                all_text.append(opened.card.data['body']['elements'][0]['content'])
+                controls = buttons(opened.card.data)
+                if '下一段' not in controls:
+                    break
+                action = controls['下一段']
+            self.assertGreater(len(all_text), 1)
+            self.assertEqual(''.join(all_text), answer)
+            self.assertEqual(click(controls['收起回答']).card.data, preview)
+            self.assertFalse(self.frames)
 
     def test_help_menu_and_buttons_route_without_submitting_a_prompt(self):
         transport = self.transport

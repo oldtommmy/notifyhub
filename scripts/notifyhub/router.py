@@ -1,11 +1,12 @@
 import fnmatch
+from dataclasses import replace
 from datetime import datetime
 
 from .channels import get_sender
 from .config import resolve_path
 from .outbox import notification_from_dict, outbox_for
 from .state import StateStore, state_lock
-from .channels.feishu_app import AmbiguousSendError
+from .channels.feishu_app import AmbiguousSendError, supports_notification_answers
 
 
 def _matches_project(notification, filters):
@@ -126,7 +127,12 @@ def _dispatch_locked(notification, config, logger, force=False, only_channel=Non
         # does not silently swallow it; `notifyhub flush` replays it later.
         try:
             outbox = outbox_for(config, logger)
-            entry = outbox.add(notification, results)
+            saved_notification = notification
+            app = config.get("channels", {}).get("feishu_app", {})
+            if notification.full_answer and (not supports_notification_answers(app)
+                                             or not any(name == "feishu_app" for name, _, _ in results)):
+                saved_notification = replace(notification, full_answer="")
+            entry = outbox.add(saved_notification, results)
             if entry is not None:
                 logger.warning(
                     "queued for retry (outbox id=%s, %d pending): %s",

@@ -30,3 +30,4 @@ class Notification:
     show_thread_tokens: bool = False
     dedupe_key: str = ""
     extra_lines: list[str] = field(default_factory=list)
+    full_answer: str = ""

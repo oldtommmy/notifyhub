@@ -44,12 +44,9 @@ def parse(payload, config):
             int(dsh.get("max_prompt_chars", 160)),
         )
 
-    last_message = ""
-    if dsh.get("include_last_message", True):
-        last_message = shorten_markdown(
-            payload.get("last_assistant_message", ""),
-            int(dsh.get("max_message_chars", 600)),
-        )
+    include_last_message = dsh.get("include_last_message", True)
+    full_answer = str(payload.get("last_assistant_message") or "").strip() if include_last_message else ""
+    last_message = shorten_markdown(full_answer, int(dsh.get("max_message_chars", 600)))
 
     return Notification(
         source="dsh",
@@ -64,9 +61,10 @@ def parse(payload, config):
         model=str(payload.get("model", "")),
         recent_prompt=recent_prompt,
         last_message=last_message,
-        include_last_message=dsh.get("include_last_message", True),
+        include_last_message=include_last_message,
         include_session_id=dsh.get("include_session_id", False),
         show_quota=False,
         show_thread_tokens=False,
         dedupe_key=f"dsh:{session_id}:{payload.get('seq') or payload.get('completed_at') or ''}:{status}",
+        full_answer=full_answer,
     )
