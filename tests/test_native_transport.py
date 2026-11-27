@@ -27,6 +27,7 @@ class NativeTransportTests(unittest.TestCase):
     def test_recovered_antigravity_result_can_sign_card_after_gateway_restart(self):
         transport = self.transport
         transport.buttons_enabled = True
+        transport.config['bridge']['allow_open_ids'] = ['owner']
         response = {'type': 'reply', 'message_id': 'om_phone', 'request_id': 'om_phone', 'chat_id': 'oc_original',
                     'key': 'result', 'view': {'type': 'result', 'engine': 'Antigravity', 'ok': True,
                                               'text': 'done', 'session': {'id': 'session', 'title': 'test'}}}
@@ -40,7 +41,12 @@ class NativeTransportTests(unittest.TestCase):
         self.assertFalse(transport.targets)
         self.assertEqual(reply.call_args.args[0], 'om_phone')
         actions = next(element['actions'] for element in reply.call_args.args[1]['elements'] if element['tag'] == 'action')
-        self.assertTrue(transport.actions.verify(actions[0]['value'], 'oc_original'))
+        action = next(item['value'] for item in actions if item['text']['content'] == '显示完整回答')
+        opened = transport.handle_card_action(NS(event=NS(
+            operator=NS(open_id='owner'), context=NS(open_chat_id='oc_original', open_message_id='result-card'),
+            action=NS(value=action),
+        )))
+        self.assertEqual(opened.card.data['elements'][0]['content'], 'done')
         receipt.assert_called_once_with('om_phone', 'delivered')
 
     def test_inbound_roundtrip_keeps_message_identity(self):

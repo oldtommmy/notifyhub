@@ -72,6 +72,10 @@ class AntigravityTests(unittest.TestCase):
             phone_input = "<SYSTEM_MESSAGE>\n[Message] content=phone\n</SYSTEM_MESSAGE>"
             self.assertFalse(stop("SYSTEM_MESSAGE", phone_input, boundary_step=2))
             self.assertFalse(stop("SYSTEM_MESSAGE", phone_input, "[Message] content=other external input"))
+            host_facts = ("<SYSTEM_MESSAGE>\n[Message] sender=system priority=MESSAGE_PRIORITY_LOW "
+                          "content=[BROWSER_HOST_FACTS subagent=browser] Host-observed facts.\n</SYSTEM_MESSAGE>")
+            self.assertFalse(stop("SYSTEM_MESSAGE", phone_input, host_facts.replace("LOW", "HIGH")))
+            self.assertTrue(stop("SYSTEM_MESSAGE", phone_input, host_facts))
             self.assertTrue(stop("SYSTEM_MESSAGE", phone_input, "Internal tool instructions"))
             self.assertTrue(stop("SYSTEM_MESSAGE", phone_input, "Internal tool instructions"))
             result = bridge.take_result({"phone": "chat"})

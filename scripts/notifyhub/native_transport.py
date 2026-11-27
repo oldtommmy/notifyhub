@@ -203,7 +203,7 @@ class NativeTransport:
                         action_value = self._action_value(chat_id, view)
                         if view.get('type') == 'result' and view.get('answer_complete', True):
                             answer = str(view.get('text') or '')
-                            if len(answer) > limit:
+                            if answer.strip():
                                 answer_id = message_id
                                 self.actions.remember_answer(chat_id, answer_id, {**view, 'text': answer}, answer_pages(answer))
                     logo_key = self._help_logo(app) if view.get('type') == 'help' else None

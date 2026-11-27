@@ -29,9 +29,22 @@ def _system_text(row):
 def _injected_text(text):
     header, separator, content = text.partition(' content=')
     line = header.splitlines()[-1] if header else ''
-    if separator and line.split(' ', 1)[0] == '[Message]' and (' sender=' not in line or ' sender=system ' in line):
-        return content
-    return None
+    if not separator or line.split(' ', 1)[0] != '[Message]':
+        return None
+    if ' sender=' in line and ' sender=system ' not in line:
+        return None
+    # The browser host inserts this notice inside a turn using the same
+    # envelope as a sidecar message.
+    if 'priority=MESSAGE_PRIORITY_LOW' in line.split() and content.startswith('[BROWSER_HOST_FACTS subagent='):
+        return None
+    return content
+
+
+def _step_time(row):
+    try:
+        return datetime.fromisoformat(str(row.get('created_at', '')).replace('Z', '+00:00')).timestamp()
+    except ValueError:
+        return 0
 
 
 def _matches_request(row, request):
@@ -60,10 +73,7 @@ def retire_previous_requests(data, session):
     if latest_desktop is None:
         return
     desktop_step = latest_desktop.get('step_index', -1)
-    try:
-        desktop_time = datetime.fromisoformat(str(latest_desktop.get('created_at', '')).replace('Z', '+00:00')).timestamp()
-    except ValueError:
-        desktop_time = 0
+    desktop_time = _step_time(latest_desktop)
     for request in pending:
         matched = next((row for row in reversed(rows) if _matches_request(row, request)), None)
         if matched is not None:
@@ -113,11 +123,13 @@ def record_stop(payload, notification):
                 if state not in (*SUBMISSION_STATES, 'finished', 'handed_off') or not _matches_request(row, request):
                     continue
                 if state in SUBMISSION_STATES:
-                    answer = next((str(step['content']) for step in reversed(rows[index + 1:])
+                    answer = next((step for step in reversed(rows[index + 1:])
                                    if step.get('type') == 'PLANNER_RESPONSE' and step.get('status') == 'DONE'
-                                   and step.get('content')), '本轮已结束，桌面没有记录文字回答。')
-                    request.update(state='finished', input_step=row.get('step_index'), answer=answer,
-                                   answer_complete=True, ok=notification.color == 'green')
+                                   and step.get('content')), {})
+                    request.update(state='finished', input_step=row.get('step_index'),
+                                   answer=str(answer.get('content') or '本轮已结束，桌面没有记录文字回答。'),
+                                   completed_at=_step_time(answer) or time.time(),
+                                   answer_complete=bool(answer), ok=notification.color == 'green')
                     request.pop('prompt', None)
                 return True
             # A different external message starts its own turn. Internal system
@@ -276,4 +288,4 @@ class AntigravityBridge:
                                              "status": "completed" if req["ok"] else "failed"},
                                  "text": req["answer"],
                                  "answer_complete": req.get("answer_complete", len(req["answer"]) != LEGACY_ANSWER_LIMIT),
-                                 "duration": round(time.time() - req["created"])}}
+                                 "duration": max(0, round(req.get("completed_at", time.time()) - req["created"]))}}
