@@ -2,7 +2,7 @@
 name: notifyhub
 description: Install and use NotifyHub for agent completion notifications, Feishu desktop continuation, and the local settings GUI. Use for notifyhub、管理界面、飞书机器人配置、完成通知、通知 hook、发件箱、版本更新、剩余额度、飞书续聊、会话卡片和按钮切换.
 metadata:
-  version: "0.9.3"
+  version: "0.9.4"
 ---
 
 # NotifyHub
@@ -56,6 +56,9 @@ Buttons work on continuation menu, session and result cards. The user can always
 - **会话** or `/sessions` lists sessions. Use **DSH会话**、**Codex会话** or **Antigravity会话** to switch engines.
 - Click **继续此会话** or reply with a row number. Use **上一页**、**下一页** and **状态** to navigate.
 - After binding, ordinary text goes to the original conversation. Use **切回此会话** on result cards. Refresh old signed buttons after a gateway restart.
+- **最新回答** or `/latest` reads the current conversation’s latest recorded answer. **状态** or `/status` shows the binding and observed runtime or recorded turn status. Treat a Codex turn without a recorded end as unfinished.
+- **待回复** or `/pending` shows available pending questions. Reply to an answerable DeepSeek Harness question with its card options or the **回答** command shown on the card. Use **回复 原文** or `/reply 原文` to send a literal message such as a number. Process Codex and Antigravity blocking choices and permission requests in the original desktop app.
+- For Codex and Antigravity, **文字问答 task** or `/ask task` lets the Agent ask an ordinary question from the same turn through the optional local MCP tool. Reply with a letter in Feishu. Configure the tool for the requested Agent and use `/pending` to see a pending question again. [Text question setup](integrations/dsh-native-bridge/README.md#text-questions)
 - Desktop continuation accepts up to 5,000 characters per prompt by default. Result cards show a preview of up to 3,000 characters. Click **显示完整回答** to read the full answer, with pagination for long answers.
 
 ## Update the Skill

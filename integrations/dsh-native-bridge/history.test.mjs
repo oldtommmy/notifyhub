@@ -60,6 +60,22 @@ try {
   assert(frames.at(-1).text.includes('恢复会话失败'));
   await controller.receive(input('reuse', 'attach', 'main-11'));
   assert.equal(resumed.filter(id => id === 'main-11').length, 1); // reuse live agent
+
+  // Current host versions can read a closed session through the query service.
+  loaded.delete('main-11');
+  ctx.sessionQuery.readSession = async id => {
+    assert.equal(id, 'main-11');
+    return { session: records[11].header, events: [
+      { type: 'session/title', data: { title: '已关闭的原会话' }, time: 10000 },
+      { type: 'turn/start', data: { turn: 1 }, time: 20000 },
+      { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '原会话回答' }] } }, time: 21000 },
+      { type: 'turn/end', data: { turn: 1 }, time: 22000 },
+    ] };
+  };
+  await controller.receive(input('read-history', 'latest_answer'));
+  assert.equal(frames.at(-1).view.session.title, '已关闭的原会话');
+  assert.equal(frames.at(-1).view.text, '原会话回答');
+  assert.equal(resumed.filter(id => id === 'main-11').length, 1);
   controller.dispose();
   console.log('native historical sessions: ok');
 } finally { fs.rmSync(directory, { recursive: true, force: true }); }

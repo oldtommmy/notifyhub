@@ -192,7 +192,7 @@ class NativeTransportTests(unittest.TestCase):
         view = transport.outbound.get_nowait()['view']
         self.assertEqual(view, {'type': 'help', 'dsh': True, 'codex': True, 'antigravity': False})
         card = build_native_card(view, action_value=lambda k, p, e: transport.actions.sign(chat, k, p, e))
-        buttons = {button['value']['engine']: button
+        buttons = {(button['value']['engine'], button['value']['kind']): button
                    for element in card['elements'] for button in element.get('actions', [])}
 
         def click(button):
@@ -202,13 +202,49 @@ class NativeTransportTests(unittest.TestCase):
             )))
 
         with patch.object(transport.codex, 'enqueue') as route_codex:
-            self.assertEqual(click(buttons['codex']).toast.type, 'info')
+            self.assertEqual(click(buttons['codex', 'attach_list']).toast.type, 'info')
             self.assertEqual(route_codex.call_args.args[0]['kind'], 'attach_list')
-            self.assertEqual(click(buttons['current']).toast.type, 'info')
-            self.assertEqual(route_codex.call_args.args[0]['kind'], 'status')
-            self.assertEqual(click(buttons['dsh']).toast.type, 'info')
+            for query in ('status', 'latest_answer', 'pending_input'):
+                self.assertEqual(click(buttons['current', query]).toast.type, 'info')
+                self.assertEqual(route_codex.call_args.args[0]['kind'], query)
+            self.assertEqual(click(buttons['dsh', 'attach_list']).toast.type, 'info')
             self.assertEqual(self.frames[-1]['kind'], 'attach_list')
-            self.assertEqual(transport.codex.routes[chat], 'dsh')
+            self.assertEqual(transport.routes[chat], 'dsh')
+
+    def test_session_commands_use_the_saved_engine_and_literal_reply(self):
+        config = {'channels': {'feishu_app': {'app_id': 'cli_test'}},
+                  'bridge': {'codex_enabled': True, 'antigravity_enabled': True}}
+        chat = {'chat_id': 'oc_test', 'sender_id': 'owner', 'chat_type': 'p2p'}
+
+        def send(transport, message_id, text):
+            transport.inbound(kind='agent', payload=['dsh', text], message_id=message_id, **chat)
+
+        with TemporaryDirectory() as directory, patch.object(Path, 'home', return_value=Path(directory)):
+            transport = NativeTransport(config, logging.getLogger('test'), self.frames.append)
+            with patch.object(transport.antigravity, 'enqueue') as select:
+                send(transport, 'switch', 'Antigravity会话')
+                self.assertEqual(select.call_args.args[0]['kind'], 'attach_list')
+            restarted = NativeTransport(config, logging.getLogger('test'), self.frames.append)
+            with patch.object(restarted.codex, 'enqueue') as codex, patch.object(restarted.antigravity, 'enqueue') as agy:
+                restarted.inbound(kind='status', payload=None, engine='codex', message_id='old-card-query', **chat)
+                self.assertEqual(codex.call_args.args[0]['kind'], 'status')
+                send(restarted, 'latest', '最新回答')
+                self.assertEqual(agy.call_args.args[0]['kind'], 'latest_answer')
+                send(restarted, 'reply', '回复 状态')
+                self.assertEqual(agy.call_args.args[0]['kind'], 'reply_text')
+                self.assertEqual(agy.call_args.args[0]['payload'], ['dsh', '状态'])
+                send(restarted, 'pending', '/pending')
+                self.assertEqual(agy.call_args.args[0]['kind'], 'pending_input')
+            self.assertFalse(self.frames)
+
+    def test_literal_reply_reaches_selected_dsh_with_codex_as_default(self):
+        transport = NativeTransport({'bridge': {'codex_enabled': True, 'default_agent': 'codex'}},
+                                    logging.getLogger('test'), self.frames.append)
+        chat = {'chat_id': 'oc_test', 'sender_id': 'owner', 'chat_type': 'p2p'}
+        transport.inbound(kind='agent', payload=['codex', 'DSH会话'], message_id='switch', **chat)
+        transport.inbound(kind='agent', payload=['codex', '回复 1'], message_id='reply', **chat)
+        self.assertEqual(self.frames[-1]['kind'], 'reply_text')
+        self.assertEqual(self.frames[-1]['payload'], ['dsh', '1'])
 
     def test_help_without_card_callbacks_shows_only_available_commands(self):
         card = build_native_card({'type': 'help', 'dsh': False, 'codex': True, 'antigravity': False})

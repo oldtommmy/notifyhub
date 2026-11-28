@@ -512,8 +512,13 @@ def build_parser():
     gateway_install.set_defaults(func=cmd_install_gateway)
 
     gateway = subparsers.add_parser("gateway", help="独立飞书收发与多 agent 会话服务")
-    from .gateway import run_dsh_client, run_gateway
+    from .gateway import run_dsh_client, run_gateway, socket_path
     gateway.set_defaults(func=lambda args: run_gateway(_config_target(args)))
+
+    from .feishu_questions import question_socket, run_mcp
+    question_tool = subparsers.add_parser('mcp-questions', help='供桌面 Agent 使用的飞书文字问答工具')
+    question_tool.add_argument('engine', choices=('codex', 'antigravity'))
+    question_tool.set_defaults(func=lambda args: run_mcp(question_socket(socket_path(load_config(_config_target(args)))), args.engine))
 
     bridge = subparsers.add_parser("bridge", help="飞书远程续聊桥接")
     bridge_sub = bridge.add_subparsers(dest="bridge_command")

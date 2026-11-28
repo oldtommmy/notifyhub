@@ -1,9 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { questionAnswers, questionRef } from './questions.js';
 
 // Shared with the ordinary notifier, without importing either plugin into the other.
 export const ownedTurns = globalThis[Symbol.for('notifyhub.nativeBridge.turns')] ??= new Set();
 export const turnKey = (session, turn) => `${session}:${turn}`;
+
+function textOf(event) {
+  return (event.data.message?.content || []).filter(part => part.type === 'text').map(part => part.text).join('');
+}
+
+function eventTime(event) {
+  const time = typeof event?.time === 'number' ? event.time : Date.parse(event?.time);
+  return Number.isFinite(time) ? time : 0;
+}
 
 export class NativeController {
   constructor(ctx, { statePath, createUserMessage, output }) {
@@ -46,6 +56,16 @@ export class NativeController {
       cwd: session.header?.cwd || '', status: agent.status,
       model: typeof selection === 'string' ? selection : selection?.model || '' };
   }
+  async inspectSession(id, read) {
+    const session = this.ctx.agents.get(id)?.session;
+    if (typeof session?.eventAt === 'function') return read(session);
+    const query = this.ctx.sessionQuery;
+    if (typeof query?.readSession === 'function') {
+      const log = await query.readSession(id);
+      return read({ id, header: log.session, seq: log.events.length, eventAt: seq => log.events[seq] });
+    }
+    return query?.inspectSession?.(id, read);
+  }
   async catalog() {
     const live = this.ctx.agents.list().filter(a => !a.session.header?.parentSession && !(a.session.header?.delegationDepth > 0));
     const query = this.ctx.sessionQuery;
@@ -55,7 +75,7 @@ export class NativeController {
       const header = record.header;
       const agent = this.ctx.agents.get(header.id);
       try {
-        return await query.inspectSession(header.id, session => {
+        const meta = await this.inspectSession(header.id, session => {
           let title = agent?.session.title || '';
           let selection;
           let updatedAt = Number(header.createdAt) || 0;
@@ -72,10 +92,11 @@ export class NativeController {
           const meta = this.metadata(agent || { session: { id: header.id, title, header }, status: 'historical', model: { current: () => selection } });
           return { ...meta, loaded: !!agent, updatedAt };
         });
+        if (meta) return meta;
       } catch (error) {
         this.ctx.logger?.warn(`native session metadata unavailable (${header.id}): ${error.message}`);
-        return { ...this.metadata(agent || { session: { id: header.id, header }, status: 'unavailable' }), loaded: !!agent, updatedAt: Number(header.createdAt) || 0 };
       }
+      return { ...this.metadata(agent || { session: { id: header.id, header }, status: 'unavailable' }), loaded: !!agent, updatedAt: Number(header.createdAt) || 0 };
     }));
     return rows.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
   }
@@ -90,6 +111,137 @@ export class NativeController {
   }
   reply(input, text, key = 'reply', view = undefined) {
     this.output({ type: 'reply', message_id: input.message_id, request_id: input.message_id, key, text, view });
+  }
+  async pendingQuestions(id) {
+    let observed;
+    try {
+      observed = await this.ctx.sessionQuery?.observeSession?.(id);
+      return observed?.projections?.values?.userQuestions?.active || [];
+    } catch (error) {
+      this.ctx.logger?.warn(`native question status unavailable: ${error.message}`);
+      return [];
+    } finally {
+      observed?.[Symbol.dispose]?.();
+    }
+  }
+  async sessionView(input, id) {
+    const agent = this.ctx.agents.get(id);
+    const session = agent?.session;
+    const query = input.kind;
+    const snapshot = await this.inspectSession(id, stored => {
+      let title = session?.title || '';
+      let ended;
+      let answer;
+      let selection;
+      let activity;
+      for (let seq = stored.seq - 1; seq >= 0; seq--) {
+        const event = stored.eventAt(seq);
+        if (!event) continue;
+        if (!title && event.type === 'session/title') title = event.data.title;
+        if (!selection && event.type === 'model/selection') selection = event.data;
+        if (event.type === 'turn/end' || event.type === 'turn/start') activity ??= event;
+        if (event.type === 'turn/end') ended = event;
+        if (event.type === 'turn/start') ended = undefined;
+        if (!answer && ended && event.type === 'assistant/message') {
+          const text = textOf(event);
+          if (text.trim()) answer = { text, at: eventTime(ended) || eventTime(event) };
+        }
+        if (title && selection && activity && (query !== 'latest_answer' || answer)) break;
+      }
+      const recorded = { completed: 'completed', aborted: 'interrupted', error: 'failed' }[activity?.data?.reason?.kind];
+      return { answer, activity, meta: this.metadata(agent || {
+        session: { id, header: stored.header, title },
+        model: { current: () => selection }, status: activity?.type === 'turn/start' ? 'unfinished' : recorded || 'historical',
+      }) };
+    });
+    if (!snapshot && !agent) return this.reply(input, '暂未读取到原会话，请在桌面打开它。');
+    const meta = snapshot?.meta || this.metadata(agent);
+    if (agent && input.chat_type === 'p2p' && query !== 'latest_answer') {
+      const pending = await this.pendingQuestions(id);
+      const ordinary = pending.filter(item => item.questions?.length && item.questions.every(question => !question.intent));
+      const active = ordinary.find(item => item.state === (query === 'status' ? 'open' : 'continued')) || ordinary[0];
+      if (active) {
+        const visible = active.questions.map(({ question, multiSelect, options = [] }) => ({
+          question, multi_select: multiSelect, options: options.map(({ label, description }) => ({ label, description })),
+        }));
+        if (active.state === 'open') {
+          meta.status = 'waiting_input';
+          return this.reply(input, '原会话正在等待回复。', 'reply', {
+            type: 'pending_input', session: meta, detail: '桌面正在等待这组问题。可在原会话回答，或稍后刷新查看可在飞书继续回答的问题。',
+            questions: visible,
+          });
+        }
+        const questions = this.ctx.get?.('userQuestions');
+        if (active.state === 'continued' && typeof questions?.answer === 'function') {
+          const ref = questionRef(id, active.callId);
+          const samples = visible.map(({ options, multi_select }) =>
+            options.length ? (multi_select && options.length > 1 ? '1,2' : '1') : '你的回答');
+          const format = samples.length === 1 ? samples[0] : samples.map((sample, index) => `${index + 1}=${sample}`).join('\n');
+          if (meta.status === 'idle') meta.status = 'waiting_input';
+          return this.reply(input, '原会话有待回复的问题。', 'reply', {
+            type: 'pending_input', session: meta, question_ref: ref,
+            detail: `可用选项序号或文字回答。例如发送\n回答 ${ref} ${format}`,
+            questions: visible,
+          });
+        }
+      }
+    }
+    let detail = '';
+    if (query === 'status') {
+      const queued = (agent?.inbox?.nextTurn?.length || 0) + (agent?.inbox?.nextStep?.length || 0);
+      if (queued) {
+        if (meta.status === 'idle') meta.status = 'queued';
+        detail = `原会话有 ${queued} 条消息在队列中。`;
+      } else if (!agent && snapshot?.activity) {
+        detail = '原会话当前未加载，显示最近的记录。';
+      } else if (meta.status === 'idle' && [...this.pending.values()].some(request => request.session === id)) {
+        meta.status = 'submitted';
+        detail = '有一条手机消息的处理结果待确认。';
+      }
+    }
+    if (query === 'pending_input') detail = '当前未读取到可在飞书回答的结构化问题。普通问题可用「回复 原文」。';
+    const view = { type: query, session: meta, detail };
+    if (query === 'status') view.activity_at = eventTime(snapshot?.activity) / 1000 || undefined;
+    if (query === 'latest_answer' && snapshot?.answer) {
+      view.text = snapshot.answer.text;
+      view.activity_at = snapshot.answer.at / 1000 || undefined;
+    }
+    this.reply(input, view.text || detail || '当前 DeepSeek Harness 会话。', 'reply', view);
+  }
+  async answerQuestion(input, id) {
+    const agent = this.ctx.agents.get(id);
+    const questions = this.ctx.get?.('userQuestions');
+    if (input.chat_type !== 'p2p' || !agent || typeof questions?.answer !== 'function') {
+      return this.reply(input, '这个待回复项目请在原桌面会话处理。');
+    }
+    const action = input.payload;
+    const text = typeof action === 'string' ? action.match(/^(\S+)\s+([\s\S]+)$/) : null;
+    const ref = typeof action === 'string' ? text?.[1] : action?.ref;
+    if (!ref || (typeof action !== 'string' && action?.session !== id)) {
+      return this.reply(input, '发送「待回复」查看当前问题和回答格式。');
+    }
+    const pending = (await this.pendingQuestions(id)).find(item => item.state === 'continued'
+      && questionRef(id, item.callId) === ref && item.questions?.length && item.questions.every(question => !question.intent));
+    if (!pending) return this.reply(input, '这个问题已失效或会话已切换。请发「待回复」刷新。');
+    const option = typeof action !== 'string' && pending.questions.length === 1 && !pending.questions[0].multiSelect
+      && pending.questions[0].options?.find(item => item.label === action.label);
+    const answer = text ? questionAnswers(pending.questions, text[2])
+      : option ? { answers: [{ id: pending.questions[0].id, selected: [option.label] }] } : null;
+    if (!answer) return this.reply(input, '回答格式或序号有误。发「待回复」可查看当前问题。');
+    const request = { message_id: input.message_id, session: id, state: 'answer_submitting', created_at: Date.now() };
+    this.data.requests[input.message_id] = request;
+    this.save();
+    try {
+      const accepted = await questions.answer(agent, pending.callId, answer);
+      request.state = accepted ? 'answer_queued' : 'answer_rejected';
+      this.save();
+      this.reply(input, accepted ? '已将答复交给原会话。' : '问题已被处理。发「待回复」刷新。', 'answer');
+    } catch (error) {
+      request.state = error.code === 'REPLY_QUEUED' ? 'answer_queued' : 'answer_unknown';
+      this.save();
+      this.reply(input, request.state === 'answer_queued' ? '这道题已有答复在等待原会话接收。'
+        : '答复状态待确认，请在桌面查看。', 'answer');
+    }
   }
   async receive(input) {
     if (input.type === 'delivery') {
@@ -153,19 +305,24 @@ export class NativeController {
       this.reply(input, `已切换到「${agent.session.title || '未命名会话'}」。直接发消息即可继续。`, 'reply', { type: 'bound', session: this.metadata(agent) });
       return;
     }
-    if (input.kind === 'status') {
-      const id = this.data.bindings[input.chat_id];
-      const agent = id && this.ctx.agents.get(id);
-      this.reply(input, `会话：${id || '未绑定'}\n状态：${agent?.status || '未在当前宿主加载'}\n权限与模型沿用原会话；需要审批时请在 dsh 处理。`, 'reply', agent ? { type: 'status', session: this.metadata(agent) } : undefined);
+    const sessionId = this.data.bindings[input.chat_id];
+    if (['status', 'latest_answer', 'pending_input', 'answer_input'].includes(input.kind)) {
+      if (!sessionId) return this.reply(input, '请先发「DSH会话」并选择原会话。');
+      try {
+        if (input.kind === 'answer_input') await this.answerQuestion(input, sessionId);
+        else await this.sessionView(input, sessionId);
+      } catch (error) {
+        this.ctx.logger?.warn(`native session read failed: ${error.message}`);
+        this.reply(input, '暂时无法读取原会话。请在桌面打开它后重试。');
+      }
       return;
     }
-    if (input.kind !== 'task') {
+    if (!['task', 'reply_text'].includes(input.kind)) {
       this.reply(input, '发「会话」选择对话，回复序号切换，然后直接发消息继续聊。发「状态」查看当前会话。');
       return;
     }
     const [kind, prompt] = input.payload || [];
     if (kind !== 'dsh') { this.reply(input, '此入口只支持 dsh。'); return; }
-    const sessionId = this.data.bindings[input.chat_id];
     let agent;
     try { agent = await this.resolveAgent(sessionId); }
     catch (error) {
@@ -205,7 +362,7 @@ export class NativeController {
     for (let seq = session.seq - 1; seq >= 0; seq--) {
       const item = session.eventAt(seq);
       if (item?.type === 'turn/start' && item.data.turn === request.turn) { foundStart = true; break; }
-      if (!text && item?.type === 'assistant/message') text = (item.data.message?.content || []).filter(p => p.type === 'text').map(p => p.text).join('');
+      if (!text && item?.type === 'assistant/message') text = textOf(item);
     }
     if (!foundStart) {
       request.state = 'unknown';

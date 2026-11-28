@@ -139,6 +139,32 @@ class AntigravityTests(unittest.TestCase):
                 self.assertEqual(data["requests"]["om_owner"]["delivery"], "unknown")
                 self.assertEqual(data["requests"]["om_legacy"]["state"], "finished")
 
+    def test_read_bound_session_answer_and_status_without_submitting(self):
+        with TemporaryDirectory() as temp, patch.object(Path, 'home', return_value=Path(temp)):
+            transcript = Path(temp) / '.gemini/antigravity/brain/session/.system_generated/logs/transcript.jsonl'
+            transcript.parent.mkdir(parents=True)
+            transcript.write_text('\n'.join(json.dumps(row) for row in [
+                {'type': 'USER_INPUT', 'status': 'DONE', 'content': 'request'},
+                {'type': 'PLANNER_RESPONSE', 'status': 'DONE', 'content': 'saved answer'},
+                {'type': 'PLANNER_RESPONSE', 'status': 'RUNNING', 'content': 'uncommitted'},
+            ]))
+            with antigravity_bridge.ledger() as data:
+                data['sessions']['session'] = {'id': 'session', 'title': 'old title', 'status': 'idle'}
+                data['bindings']['chat'] = 'session'
+                data['heartbeat'] = time.time()
+            responses = []
+            bridge = antigravity_bridge.AntigravityBridge({'bridge': {'antigravity_enabled': True}}, responses.append)
+            message = {'chat_id': 'chat', 'chat_type': 'p2p', 'message_id': 'read'}
+            with patch.object(antigravity_bridge, 'session_metadata', return_value={
+                    'title': 'current title', 'status': 'CASCADE_RUN_STATUS_IDLE', 'not_fully_idle': 1}):
+                bridge.handle({**message, 'kind': 'latest_answer'})
+                bridge.handle({**message, 'kind': 'status'})
+            self.assertEqual(responses[0]['view']['text'], 'saved answer')
+            self.assertEqual(responses[1]['view']['session']['status'], 'running')
+            self.assertEqual(responses[1]['view']['session']['title'], 'current title')
+            with antigravity_bridge.ledger() as data:
+                self.assertFalse(data['requests'])
+
     def test_installer_preserves_independent_hook_groups(self):
         with TemporaryDirectory() as temp:
             path = installer.target_path("antigravity", home=temp)

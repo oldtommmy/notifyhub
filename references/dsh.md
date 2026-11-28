@@ -24,7 +24,7 @@ For Web completion notifications, replace `desktop` with `web` in both commands.
 To update, add the new release's version-specific tarball URL in the same profile, then restart that host. Copy the asset link from [GitHub Releases](https://github.com/oldtommmy/notifyhub/releases). For example:
 
 ```bash
-dsh plugin --profile desktop add https://github.com/oldtommmy/notifyhub/releases/download/v0.9.3/dsh-notifyhub.tgz
+dsh plugin --profile desktop add https://github.com/oldtommmy/notifyhub/releases/download/v0.9.4/dsh-notifyhub.tgz
 ```
 
 <a id="missing-cli"></a>
@@ -66,6 +66,8 @@ For Feishu continuation with the independent gateway, select **DeepSeek Harness*
 ```bash
 python3 "$SKILL_ROOT/scripts/notifyhub.py" install-dsh --profile desktop --continuation
 ```
+
+In Feishu, select a session and send **状态** to check its runtime state or **最新回答** to read its most recent recorded answer. **待回复** reads timed questions when the host exposes the `userQuestions` projection. A question that the host marks as continued accepts an option button or the **回答** command printed on the card. Use the desktop session for foreground questions and permission decisions. [DeepSeek Harness user interaction](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/user-questions)
 
 To switch a Market install to the Skill, apply the adapter from the Skill. This keeps the dsh package identity and sessions. For a dsh-hosted Feishu receiver, use the [gateway migration steps](../integrations/dsh-native-bridge/README.md#migrate-gateway).
 

@@ -29,8 +29,9 @@ class CardActions:
         if not isinstance(value, dict) or value.get('chat') != chat_id:
             return False
         engine, kind = value.get('engine', 'dsh'), value.get('kind')
-        if not (engine in ('dsh', 'codex', 'antigravity') and kind in ('attach', 'attach_list', 'status', 'help', 'view_answer')
-                or engine == 'current' and kind == 'status'):
+        queries = ('status', 'latest_answer', 'pending_input')
+        if not (engine in ('dsh', 'codex', 'antigravity') and kind in (*queries, 'attach', 'attach_list', 'answer_input', 'help', 'view_answer')
+                or engine == 'current' and kind in queries):
             return False
         try:
             return (int(value['expires']) >= time.time()

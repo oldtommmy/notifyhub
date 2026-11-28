@@ -1,14 +1,18 @@
 """Feishu I/O sidecar. Agent execution stays inside the owning dsh process."""
 import json
+from hashlib import sha256
+from pathlib import Path
 import queue
 import sys
 import threading
 import time
+import unicodedata
 
 from .bridge_cli import _acquire_instance_lock
 from .channels import feishu_app
 from .config import DEFAULT_CONFIG, load_config
 from .feishu_listener import FeishuListener
+from .installer import _write
 from .log import get_logger
 from .native_cards import build_full_answer_card, build_native_card
 from .native_actions import CardActions
@@ -17,11 +21,21 @@ from .codex_bridge import CodexBridge
 from .antigravity_bridge import AntigravityBridge
 from .bridge import is_allowed
 from .feishu_listener import SeenMessages
+from .state import state_lock
+
+
+SESSION_QUERIES = {
+    '状态': 'status',
+    '最新回答': 'latest_answer', '最近回答': 'latest_answer', '/latest': 'latest_answer',
+    '待回复': 'pending_input', '/pending': 'pending_input',
+}
+ENGINE_COMMANDS = {'codex会话': 'codex', 'dsh会话': 'dsh', 'antigravity会话': 'antigravity'}
 
 
 class NativeTransport:
-    def __init__(self, config, logger, emit):
+    def __init__(self, config, logger, emit, questions=None):
         self.config, self.logger, self.emit = config, logger, emit
+        self.questions = questions
         self.targets = {}
         self.chat_types = {}
         self.card_replies = {}
@@ -36,10 +50,33 @@ class NativeTransport:
         self.notification_answers = NotificationAnswers(config.get('channels', {}).get('feishu_app', {}).get('app_id', ''))
         self.listener = FeishuListener(config, self.inbound, logger, reply=self.refusal, card_action=self.handle_card_action)
         self.outbound = queue.Queue(maxsize=256)
-        self.codex = CodexBridge(config, self.enqueue, logger, state_path=bridge.get('codex_ledger_path'))
-        self.antigravity = AntigravityBridge(config, self.enqueue)
-        self.antigravity_chats = set()
+        self.codex = CodexBridge(config, self.enqueue, logger, state_path=bridge.get('codex_ledger_path'), questions=questions)
+        self.antigravity = AntigravityBridge(config, self.enqueue, logger, questions=questions)
+        if questions is not None:
+            questions.send = self.enqueue
+        app_id = config.get('channels', {}).get('feishu_app', {}).get('app_id', '')
+        self.routes_path = (Path.home() / '.local/state/notifyhub' / f'feishu-routes-{sha256(app_id.encode()).hexdigest()}.json'
+                            if app_id else None)
+        try:
+            routes = json.loads(self.routes_path.read_text(encoding='utf-8')) if self.routes_path else {}
+        except (OSError, ValueError):
+            routes = {}
+        self.routes = ({chat: engine for chat, engine in routes.items() if engine in ENGINE_COMMANDS.values()}
+                       if isinstance(routes, dict) else {})
         self.worker = threading.Thread(target=self._send_loop, daemon=True)
+
+    def _select_engine(self, chat, engine):
+        if self.routes.get(chat) == engine:
+            return
+        if self.questions:
+            self.questions.forget(chat=chat, other_than=engine)
+        self.routes[chat] = engine
+        if self.routes_path:
+            try:
+                with state_lock(self.routes_path):
+                    _write(self.routes_path, self.routes)
+            except OSError as error:
+                self.logger.warning('Cannot save Feishu agent selection: %s', error)
 
     def inbound(self, **message):
         # Only messages that passed the listener's allowlist reach this point.
@@ -50,34 +87,76 @@ class NativeTransport:
         if message.get('chat_type'):
             self.chat_types[chat] = message['chat_type']
         if message.get('kind') == 'help':
-            self.enqueue({'type': 'reply', 'message_id': message_id, 'key': 'help', 'view': {
+            view = {
                 'type': 'help', 'dsh': self.codex.dsh_enabled,
                 'codex': self.codex.enabled and message.get('chat_type') == 'p2p',
                 'antigravity': self.antigravity.enabled and message.get('chat_type') == 'p2p',
-            }})
+            }
+            if self.questions and (view['codex'] or view['antigravity']):
+                view['text_questions'] = True
+            self.enqueue({'type': 'reply', 'message_id': message_id, 'key': 'help', 'view': view})
             return
         engine = message.get('engine')
-        agent, prompt = message.get('payload') if message.get('kind') == 'task' else ('', '')
-        prompt = str(prompt)
-        alias = prompt.strip().lower().replace(' ', '')
-        if alias == 'antigravity会话':
-            engine = 'antigravity'
-            message.update(kind='attach_list', payload='')
-        elif len(prompt) > self.prompt_limit:
+        agent, prompt = message['payload'] if message.get('kind') == 'task' else ('', '')
+        prompt = str(prompt).strip()
+        alias = prompt.lower().replace(' ', '')
+        if message['kind'] == 'task':
+            if alias in ENGINE_COMMANDS:
+                engine = ENGINE_COMMANDS[alias]
+                message.update(kind='attach_list', payload='')
+            elif prompt.lower() in SESSION_QUERIES:
+                message.update(kind=SESSION_QUERIES[prompt.lower()], payload=None)
+            else:
+                parts = prompt.split(maxsplit=1)
+                command = parts[0].lower() if parts else ''
+                if command in ('回复', '/reply', '回答', '/answer', '文字问答', '/ask'):
+                    if len(parts) < 2:
+                        self.refusal(message_id, '请在命令后填写内容。发送「帮助」查看用法。')
+                        return
+                    prompt = parts[1]
+                    if command in ('回复', '/reply'):
+                        message.update(kind='reply_text', payload=[agent, prompt])
+                    elif command in ('文字问答', '/ask'):
+                        message.update(kind='reply_text', payload=[agent, prompt], ask_in_feishu=True)
+                    else:
+                        message.update(kind='answer_input', payload=prompt)
+        if message['kind'] in ('task', 'reply_text', 'answer_input') and len(prompt) > self.prompt_limit:
             self.refusal(message_id, f'这条提问有 {len(prompt)} 个字符，超过 {self.prompt_limit} 字符上限。请分段发送。')
             return
-        if engine == 'antigravity' or (not engine and (chat in self.antigravity_chats or
-                                      self.antigravity.enabled and not self.codex.enabled and not self.codex.dsh_enabled)
-                                      and alias not in ('dsh会话', 'codex会话') and agent != 'codex'):
-            if self.antigravity.enabled and message.get('chat_type') == 'p2p':
-                self.antigravity_chats.add(chat)
-            self.antigravity.handle(message)
+        if message['kind'] in ('latest_answer', 'pending_input', 'answer_input') and message.get('chat_type') != 'p2p':
+            self.refusal(message_id, '请与机器人私聊，查看会话回答或处理待回复问题。')
             return
-        if engine in ('codex', 'dsh') or alias in ('dsh会话', 'codex会话') or agent == 'codex':
-            self.antigravity_chats.discard(chat)
-        if self.codex.wants(message):
+        if engine is None and agent == 'codex' and self.config.get('bridge', {}).get('default_agent') != 'codex':
+            engine = 'codex'
+        if message.get('chat_type') == 'p2p' and engine in ENGINE_COMMANDS.values() and message['kind'] in (
+                'attach', 'attach_list', 'task', 'reply_text'):
+            self._select_engine(chat, engine)
+        engine = engine or self.routes.get(chat)
+        if not engine and self.antigravity.enabled and not self.codex.enabled and not self.codex.dsh_enabled:
+            engine = 'antigravity'
+        if not engine:
+            engine = 'codex' if self.codex.wants(message) else 'dsh'
+        if message.get('ask_in_feishu') and (not self.questions or engine == 'dsh' or message.get('chat_type') != 'p2p'):
+            self.refusal(message_id, '文字问答需要独立网关。请在机器人私聊选中 Codex 或 Antigravity 会话。')
+            return
+        if self.questions and message.get('chat_type') == 'p2p':
+            kind = message['kind']
+            letter = unicodedata.normalize('NFKC', prompt).upper()
+            choice = letter if kind in ('task', 'answer_input') and len(letter) == 1 and 'A' <= letter <= 'Z' else None
+            if choice or kind == 'pending_input':
+                result = self.questions.respond(chat, message.get('sender_id'), choice=choice)
+                if result:
+                    self.enqueue({'type': 'reply', 'message_id': message_id,
+                                  'key': 'question-choice' if choice else 'question-reminder', 'text': result})
+                    return
+        if engine == 'antigravity':
+            self.antigravity.enqueue(message)
+            return
+        if engine == 'codex':
             self.codex.enqueue({'type': 'message', **message})
         elif self.codex.dsh_enabled:
+            if message['kind'] in ('task', 'reply_text'):
+                message['payload'] = ['dsh', message['payload'][1]]
             self.emit({'type': 'message', **message})
         else:
             self.enqueue({'type': 'reply', 'message_id': message['message_id'],
@@ -125,17 +204,23 @@ class NativeTransport:
 
     def enqueue(self, response):
         if response.get('type') != 'reply':
-            return
+            return False
         if response.get('key') != 'refusal' and response.get('message_id') not in self.targets:
             self.logger.warning('native transport rejected reply to an unknown message')
-            return
+            return False
         try:
             self.outbound.put_nowait(response)
+            return True
         except queue.Full:
             self.logger.error('native transport outbound queue full; response not sent')
             self.receipt(response, 'not_sent')
+            return False
 
     def receipt(self, response, status):
+        if response.get('key', '').startswith('question'):
+            if status != 'delivered' and response['key'].startswith('question:') and self.questions:
+                self.questions.forget(message_id=response['message_id'], status='unavailable')
+            return
         receipt = {'type': 'delivery', 'request_id': response.get('request_id'), 'key': response.get('key'), 'status': status}
         if (response.get('view') or {}).get('engine') == 'Antigravity' and response.get('key') == 'result':
             self.antigravity.receipt(response['message_id'], status)
@@ -196,7 +281,7 @@ class NativeTransport:
                 app = self.config['channels']['feishu_app']
                 text = str(response.get('text', ''))
                 limit = self.answer_limit
-                if len(text) > limit:
+                if len(text) > limit and not response.get('key', '').startswith('question'):
                     text = text[:limit] + '\n（内容截断，完整结果见桌面原会话）'
                 message_id = response['message_id']
                 target = self.card_replies.get(message_id, message_id)
@@ -210,7 +295,7 @@ class NativeTransport:
                     if self.buttons_enabled:
                         chat_id = response.get('chat_id') or self.targets[message_id]
                         action_value = self._action_value(chat_id, view)
-                        if view.get('type') == 'result' and view.get('answer_complete', True):
+                        if view.get('type') in ('result', 'latest_answer') and view.get('answer_complete', True):
                             answer = str(view.get('text') or '')
                             if answer.strip():
                                 answer_id = message_id

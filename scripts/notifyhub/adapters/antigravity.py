@@ -15,15 +15,27 @@ def clean_user_input(text):
     return match.group(1).strip() if match else text.strip()
 
 
-def session_metadata(conversation):
+def session_metadata(conversation, *, include_status=False):
     path = Path.home() / ".gemini/antigravity/conversation_summaries.db"
-    try:
-        with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=1) as db:
-            db.row_factory = sqlite3.Row
-            row = db.execute("SELECT title FROM conversation_summaries WHERE conversation_id = ?", (conversation,)).fetchone()
-            return dict(row) if row else {}
-    except sqlite3.Error:
-        return {}
+    sidecars = [path.with_name(path.name + suffix) for suffix in ("-wal", "-journal")]
+    for extra in ("", "&immutable=1"):
+        if extra and any(sidecar.exists() for sidecar in sidecars):
+            break
+        try:
+            with sqlite3.connect(path.as_uri() + "?mode=ro" + extra, uri=True, timeout=1) as db:
+                db.row_factory = sqlite3.Row
+                columns = ["title"]
+                if include_status:
+                    available = {row["name"] for row in db.execute("PRAGMA table_info(conversation_summaries)")}
+                    columns.extend(name for name in ("status", "not_fully_idle", "killed") if name in available)
+                row = db.execute(f"SELECT {', '.join(columns)} FROM conversation_summaries WHERE conversation_id = ?",
+                                 (conversation,)).fetchone()
+                if extra and any(sidecar.exists() for sidecar in sidecars):
+                    break
+                return dict(row) if row else {}
+        except sqlite3.Error:
+            continue
+    return {}
 
 
 def turn_text(path):

@@ -3,7 +3,9 @@ import json
 import os
 from pathlib import Path
 import hashlib
+import queue
 import subprocess
+import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -20,6 +22,10 @@ LEGACY_ANSWER_LIMIT = 12000
 
 def ledger_path():
     return Path.home() / ".local/state/notifyhub/antigravity-bridge.json"
+
+
+def _transcript_path(session):
+    return Path.home() / '.gemini/antigravity/brain' / session / '.system_generated/logs/transcript.jsonl'
 
 
 def _system_text(row):
@@ -66,8 +72,7 @@ def retire_previous_requests(data, session):
     pending = [r for r in data['requests'].values() if r['session'] == session and r['state'] in SUBMISSION_STATES]
     if not pending:
         return
-    path = Path.home() / '.gemini/antigravity/brain' / session / '.system_generated/logs/transcript.jsonl'
-    rows = [row for row in _read_events(path) if isinstance(row, dict)]
+    rows = [row for row in _read_events(_transcript_path(session)) if isinstance(row, dict)]
     latest_desktop = next((row for row in reversed(rows)
                            if row.get('type') == 'USER_INPUT' and row.get('status') == 'DONE'), None)
     if latest_desktop is None:
@@ -158,8 +163,7 @@ def run_sidecar(config_file):
                 queued["state"] = "submitting"
                 queued['submission_started_at'] = time.time()
                 prompt = queued.pop("prompt")
-                transcript = Path.home() / ".gemini/antigravity/brain" / queued["session"] / ".system_generated/logs/transcript.jsonl"
-                rows = _read_events(transcript)
+                rows = _read_events(_transcript_path(queued["session"]))
                 queued["baseline_step"] = max((row.get("step_index", -1) for row in rows if isinstance(row, dict)), default=-1)
         if queued:
             try:
@@ -181,12 +185,83 @@ def run_sidecar(config_file):
 
 
 class AntigravityBridge:
-    def __init__(self, config, reply):
+    def __init__(self, config, reply, logger=None, questions=None):
         self.enabled = bool((config.get("bridge") or {}).get("antigravity_enabled"))
         self.config = config
         self.app_id = config.get('channels', {}).get('feishu_app', {}).get('app_id', '')
         self.reply = reply
+        self.logger = logger
+        self.questions = questions
         self.choices = {}
+        self.inbox = queue.Queue(maxsize=256)
+        self.worker = None
+
+    def enqueue(self, message):
+        if self.worker is None:
+            self.worker = threading.Thread(target=self._loop, daemon=True, name='antigravity-feishu')
+            self.worker.start()
+        try:
+            self.inbox.put_nowait(dict(message))
+        except queue.Full:
+            self.reply({"type": "reply", "message_id": message["message_id"], "key": "busy",
+                        "text": "Antigravity 查询较多，请稍后再试。"})
+
+    def _loop(self):
+        while True:
+            message = self.inbox.get()
+            try:
+                self.handle(message)
+            except Exception as error:
+                if self.logger:
+                    self.logger.warning('Antigravity bridge request failed: %s', error)
+                self.reply({"type": "reply", "message_id": message["message_id"], "key": "error",
+                            "text": "Antigravity 暂时不可用，请在桌面查看会话状态。"})
+
+    def session_view(self, chat, kind):
+        with ledger() as data:
+            bound = data['bindings'].get(chat)
+            if bound not in data['sessions']:
+                return None
+            session = dict(data['sessions'][bound])
+            recent = [dict(request) for request in data['requests'].values() if request['session'] == bound]
+            connected = time.time() - data.get('heartbeat', 0) <= 15
+        meta = session_metadata(bound, include_status=True)
+        if meta.get('title'):
+            session['title'] = meta['title']
+        status = str(meta.get('status') or '').removeprefix('CASCADE_RUN_STATUS_').lower()
+        detail = ''
+        if not connected:
+            status, detail = 'unavailable', '桌面 Sidecar 当前离线，可以读取已保存的记录。'
+        elif meta.get('killed'):
+            status = 'interrupted'
+        elif status in ('waiting_for_user', 'waiting_for_user_input', 'waiting_on_user_input'):
+            status, detail = 'waiting_input', 'Antigravity 正在等待用户操作。请在原桌面会话处理。'
+        elif status == 'running' or meta.get('not_fully_idle'):
+            status = 'running'
+        elif any(request['state'] == 'queued' for request in recent):
+            status = 'queued'
+        elif any(request['state'] in SUBMISSION_STATES for request in recent):
+            status, detail = 'submitted', '有一条手机消息还在等待桌面确认结果。'
+        elif status != 'idle':
+            status = 'historical' if not status else 'unknown'
+        if kind in ('pending_input', 'answer_input') and not detail:
+            detail = '普通问题可以用「回复 原文」发给当前会话。桌面的选择或确认请在 Antigravity 处理。'
+        actual_kind = 'pending_input' if kind == 'answer_input' else kind
+        view = {'type': actual_kind, 'engine': 'Antigravity', 'session': {**session, 'status': status}, 'detail': detail}
+        if kind == 'latest_answer':
+            rows = _read_events(_transcript_path(bound))
+            answer = next((row for row in reversed(rows) if isinstance(row, dict)
+                           and row.get('type') == 'PLANNER_RESPONSE' and row.get('status') == 'DONE'
+                           and isinstance(row.get('content'), str) and row['content'].strip()), None)
+            if answer:
+                view.update(text=answer['content'], activity_at=_step_time(answer))
+            else:
+                saved = max((request for request in recent if request.get('answer')),
+                            key=lambda request: request.get('completed_at', request['created']), default=None)
+                if saved:
+                    view.update(text=saved['answer'], activity_at=saved.get('completed_at'),
+                                answer_complete=saved.get('answer_complete', len(saved['answer']) != LEGACY_ANSWER_LIMIT))
+        return view
 
     def handle(self, msg):
         def reply(text, key="reply", view=None):
@@ -195,8 +270,8 @@ class AntigravityBridge:
         if not self.enabled or msg.get("chat_type") != "p2p":
             return reply("Antigravity 续聊需要在配置中启用，并与机器人私聊。")
         chat, kind, arg = msg["chat_id"], msg["kind"], msg.get("payload")
+        text = str(arg[1]).strip() if kind in ("task", "reply_text") else ""
         if kind == "task":
-            text = str(arg[1]).strip()
             if text in ("会话", "切换会话", "会话列表"):
                 kind, arg = "attach_list", ""
             elif text in ("上一页", "下一页"):
@@ -209,6 +284,12 @@ class AntigravityBridge:
 
         def card(view, **fields):
             return {"type": view, "engine": "Antigravity", **fields}
+
+        if kind in ('status', 'latest_answer', 'pending_input', 'answer_input'):
+            view = self.session_view(chat, kind)
+            if view is None:
+                return reply('请先发「Antigravity会话」并选择会话。')
+            return reply(view.get('text') or view['detail'] or '当前 Antigravity 会话。', view=view)
 
         with ledger() as data:
             bound = data["bindings"].get(chat)
@@ -231,14 +312,14 @@ class AntigravityBridge:
                     target = ids[index] if 0 <= index < len(ids) and expiry > time.monotonic() else ""
                 if target not in sessions:
                     return reply("会话未找到。请发「Antigravity会话」刷新列表。")
+                if self.questions and target != bound:
+                    self.questions.forget(chat=chat)
                 data["bindings"][chat] = target
                 self.choices.pop(chat, None)
                 return reply("已绑定 Antigravity 会话。", view=card("bound", session=sessions[target]))
             if bound not in sessions:
                 return reply("请先发「Antigravity会话」并选择会话。")
-            if kind == "status":
-                return reply("当前 Antigravity 会话。", view=card("status", session=sessions[bound]))
-            if kind != "task":
+            if kind not in ("task", "reply_text"):
                 return reply("发「帮助」查看使用方式。")
             if time.time() - data.get("heartbeat", 0) > 15:
                 return reply("Antigravity 续聊未连接，请确认桌面 App 与 NotifyHub Sidecar 正在运行。")
@@ -249,6 +330,11 @@ class AntigravityBridge:
             if any(r["session"] == bound and r["state"] in ("queued", *SUBMISSION_STATES)
                    for r in data["requests"].values()):
                 return reply("该会话有一条待确认的请求，请在桌面查看状态。")
+            if self.questions:
+                try:
+                    text = self.questions.prepare(msg, 'antigravity', sessions[bound].get('title'), text)
+                except ValueError as error:
+                    return reply(str(error))
             data["requests"][identity] = {"id": identity, "session": bound, "state": "queued",
                                           "created": time.time(), "prompt": text,
                                           "input_hash": hashlib.sha256(text.encode()).hexdigest(), "chat_id": chat,
@@ -268,6 +354,8 @@ class AntigravityBridge:
             for identity, req in data["requests"].items():
                 if req["state"] != "finished":
                     continue
+                if self.questions:
+                    self.questions.forget(message_id=identity)
                 chat = known.get(identity)
                 if req.get('app_id'):
                     # Recover a never-attempted result after a restart only

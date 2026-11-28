@@ -104,6 +104,33 @@ class CodexBridgeTests(unittest.TestCase):
         self.assertEqual(self.outputs[-1]['key'], 'result')
         self.assertFalse(self.outputs[-1]['view']['ok'])
 
+    def test_latest_answer_uses_a_completed_turn_and_reports_live_waiting_status(self):
+        self.rpc.thread['status'] = {'type': 'active', 'activeFlags': ['waitingOnUserInput']}
+        self.rpc.turns = [
+            {'id': 'running', 'status': 'inProgress', 'startedAt': 30, 'items': [
+                {'type': 'agentMessage', 'phase': 'commentary', 'text': 'still working'}]},
+            {'id': 'done', 'status': 'completed', 'startedAt': 10, 'completedAt': 20, 'items': [
+                {'type': 'agentMessage', 'phase': 'commentary', 'text': 'progress'},
+                {'type': 'agentMessage', 'phase': 'final_answer', 'text': 'the latest saved answer'}]},
+        ]
+        self.bridge.handle(self.frame('history', 'latest_answer'))
+        view = self.outputs[-1]['view']
+        self.assertEqual(view['type'], 'latest_answer')
+        self.assertEqual(view['text'], 'the latest saved answer')
+        self.assertEqual(view['activity_at'], 20)
+        self.bridge.handle(self.frame('status', 'status'))
+        self.assertEqual(self.outputs[-1]['view']['session']['status'], 'waiting_input')
+        self.assertFalse(self.queue_calls())
+
+    def test_an_independent_reader_does_not_report_an_unfinished_turn_as_interrupted(self):
+        self.rpc.thread['status'] = {'type': 'notLoaded'}
+        self.rpc.turns = [{'id': 'desktop', 'status': 'interrupted', 'startedAt': 10, 'completedAt': None}]
+        self.bridge.handle(self.frame('status', 'status'))
+        self.assertEqual(self.outputs[-1]['view']['session']['status'], 'unfinished')
+        self.rpc.turns[0]['completedAt'] = 20
+        self.bridge.handle(self.frame('status2', 'status'))
+        self.assertEqual(self.outputs[-1]['view']['session']['status'], 'interrupted')
+
     def test_uncertain_queue_is_never_replayed_after_restart(self):
         self.rpc.error = CodexRpcError('timeout')
         self.bridge.handle(self.frame('phone'))

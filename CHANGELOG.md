@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.9.4
+
+- Add Feishu text questions for Codex and Antigravity. Reply with a letter to
+  continue the waiting turn in the original desktop conversation.
+- Add latest-answer, session status and pending-question commands to the Feishu
+  menu. Keep the selected Agent across gateway restarts.
+- Support replies to continued DeepSeek Harness questions and read saved
+  answers from unloaded sessions.
+- Recover Antigravity result delivery and let Feishu completion cards display
+  the full answer with pagination.
+
 ## 0.9.3
 
 - Release the NotifyHub Skill and unified DeepSeek Harness plugin together.

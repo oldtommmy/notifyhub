@@ -9,6 +9,8 @@ import sys
 import threading
 import uuid
 
+from . import __version__
+
 
 class CodexRpcError(RuntimeError):
     pass
@@ -47,7 +49,7 @@ class CodexRpc:
         self.process = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL, text=True, bufsize=1, env=self.env)
         threading.Thread(target=self._read, daemon=True).start()
-        self.call('initialize', {'clientInfo': {'name': 'notifyhub_feishu', 'title': 'notifyhub', 'version': '0.9.2'},
+        self.call('initialize', {'clientInfo': {'name': 'notifyhub_feishu', 'title': 'notifyhub', 'version': __version__},
                                  'capabilities': {'experimentalApi': True}})
         self._send({'method': 'initialized', 'params': {}})
 

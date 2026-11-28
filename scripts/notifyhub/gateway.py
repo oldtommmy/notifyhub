@@ -9,6 +9,7 @@ import time
 
 from .bridge_cli import _acquire_instance_lock
 from .config import load_config
+from .feishu_questions import FeishuQuestions, question_socket
 from .log import get_logger
 
 
@@ -69,15 +70,26 @@ def run_gateway(config_file):
         raise SystemExit('独立网关的本地连接目前支持 macOS/Linux。')
     instance_lock = _acquire_instance_lock(settings)
     connection = DshConnection()
-    transport = NativeTransport(config, get_logger(config.get('log_path', ''), False), connection.emit)
-    connection.transport = transport
     path = socket_path(config)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    threading.Thread(target=connection.serve, args=(path,), daemon=True).start()
-    transport.worker.start()
-    transport.listener.start()
-    print('NotifyHub gateway started', flush=True)
+    logger = get_logger(config.get('log_path', ''), False)
+    questions = None
+    question_server = None
+    transport = None
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if settings.get('codex_enabled') or settings.get('antigravity_enabled'):
+            questions = FeishuQuestions(question_socket(path), config)
+            try:
+                question_server = questions.open()
+            except OSError as error:
+                logger.warning('Feishu text question endpoint unavailable: %s', error)
+                questions = None
+        transport = NativeTransport(config, logger, connection.emit, questions=questions)
+        connection.transport = transport
+        threading.Thread(target=connection.serve, args=(path,), daemon=True).start()
+        transport.worker.start()
+        transport.listener.start()
+        print('NotifyHub gateway started', flush=True)
         while True:
             time.sleep(10)
             if not transport.listener._thread.is_alive() or not transport.worker.is_alive():
@@ -89,9 +101,14 @@ def run_gateway(config_file):
                 transport.logger.error('gateway received no Feishu frames for 300 seconds; exiting for service restart')
                 return 1
     finally:
-        transport.codex.close()
-        instance_lock.close()
+        if transport is not None:
+            transport.codex.close()
+        if question_server is not None:
+            question_server.shutdown()
+            question_server.server_close()
+            questions.path.unlink(missing_ok=True)
         path.unlink(missing_ok=True)
+        instance_lock.close()
 
 
 def run_dsh_client(config):
